@@ -21,7 +21,7 @@ def calcular_macd_hist(df):
     return hist.iloc[-1]
 
 async def analizar_simbolo(exchange, symbol, semaphore):
-    async con semaphore:
+    async with semaphore:
         try:
             # Descargar velas para las 4 temporalidades con suficiente profundidad (50 velas)
             v_1m, v_15m, v_1h, v_4h = await asyncio.gather(
