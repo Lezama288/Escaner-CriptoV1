@@ -7,8 +7,6 @@ Original file is located at
     https://colab.research.google.com/drive/1dMosIZzxIlJp9Zmoa1ByytKK8XzzYXTi
 """
 
-!pip install ccxt pandas
-
 import asyncio
 import ccxt.async_support as ccxt
 import pandas as pd
