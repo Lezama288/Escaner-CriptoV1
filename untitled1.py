@@ -3,15 +3,23 @@ import ccxt.async_support as ccxt
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # Configuración de la página web
-st.set_page_config(page_title="Escáner Cripto Pro MACD 4T", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Terminal Cripto Pro - S.L & T.P", page_icon="📈", layout="wide")
 
-st.title("🚀 Escáner Cripto Pro con Confluencia Total de MACD y 4 Temporalidades")
-st.write("Analiza y evalúa el impulso del **MACD en 1m, 15m, 1h y 4h** junto con Bandas de Bollinger y RSI.")
+# Estilo visual personalizado (CSS para oscurecer y estilizar métricas)
+st.markdown("""
+    <style>
+    .main { background-color: #0e1117; }
+    .stMetric { background-color: #1a1c24; padding: 15px; border-radius: 10px; border: 1px solid #30333d; }
+    </style>
+""", unsafe_allow_html=True)
+
+st.title("🚀 Terminal de Escaneo Cripto Pro con S.L. y T.P.")
+st.markdown("Herramienta de análisis multi-temporal (**1m, 15m, 1h, 4h**) con confluencia de MACD, RSI, Bollinger y Gestión de Riesgo.")
 
 def calcular_macd_hist(df):
-    """Calcula el último valor del histograma MACD (12, 26, 9)"""
     close = df['close']
     exp1 = close.ewm(span=12, adjust=False).mean()
     exp2 = close.ewm(span=26, adjust=False).mean()
@@ -23,7 +31,6 @@ def calcular_macd_hist(df):
 async def analizar_simbolo(exchange, symbol, semaphore):
     async with semaphore:
         try:
-            # Descargar velas para las 4 temporalidades con suficiente profundidad (50 velas)
             v_1m, v_15m, v_1h, v_4h = await asyncio.gather(
                 exchange.fetch_ohlcv(symbol, timeframe='1m', limit=50),
                 exchange.fetch_ohlcv(symbol, timeframe='15m', limit=50),
@@ -41,7 +48,7 @@ async def analizar_simbolo(exchange, symbol, semaphore):
             
             precio_actual = df_1h['close'].iloc[-1]
 
-            # --- 1. INDICADORES EN 1H (Base principal) ---
+            # Indicadores 1h
             close_1h = df_1h['close']
             delta = close_1h.diff()
             gain = (delta.where(delta > 0, 0)).rolling(14).mean()
@@ -58,22 +65,20 @@ async def analizar_simbolo(exchange, symbol, semaphore):
             vol_actual = df_1h['volume'].iloc[-1]
             vol_prom = df_1h['volume'].rolling(20).mean().iloc[-1]
 
-            # --- 2. MACD EN LAS 4 TEMPORALIDADES ---
+            # MACD en 4 Tiempos
             macd_1m = calcular_macd_hist(df_1m)
             macd_15m = calcular_macd_hist(df_15m)
             macd_1h = calcular_macd_hist(df_1h)
             macd_4h = calcular_macd_hist(df_4h)
 
-            # --- 3. TENDENCIA DE MEDIAS MÓVILES EN 4 Tiempos ---
+            # Tendencia de Precios en 4 Tiempos
             alcista_1m = precio_actual > df_1m['close'].rolling(20).mean().iloc[-1]
             alcista_15m = precio_actual > df_15m['close'].rolling(20).mean().iloc[-1]
             alcista_1h = precio_actual > sma
             alcista_4h = precio_actual > df_4h['close'].rolling(20).mean().iloc[-1]
 
-            # --- SISTEMA DE PUNTUACIÓN MULTI-TEMPORAL Y MACD ---
+            # Puntuación
             puntos_alcistas = 50
-
-            # Puntuación por tendencia de precios en 4T
             if alcista_4h: puntos_alcistas += 6
             else: puntos_alcistas -= 6
             if alcista_1h: puntos_alcistas += 5
@@ -83,7 +88,6 @@ async def analizar_simbolo(exchange, symbol, semaphore):
             if alcista_1m: puntos_alcistas += 3
             else: puntos_alcistas -= 3
 
-            # Puntuación por confluencia de MACD en los 4 tiempos
             if macd_4h > 0: puntos_alcistas += 10
             else: puntos_alcistas -= 10
             if macd_1h > 0: puntos_alcistas += 8
@@ -93,7 +97,6 @@ async def analizar_simbolo(exchange, symbol, semaphore):
             if macd_1m > 0: puntos_alcistas += 4
             else: puntos_alcistas -= 4
 
-            # Bollinger y RSI
             if precio_actual <= lower * 1.01: puntos_alcistas += 10
             elif precio_actual >= upper * 0.99: puntos_alcistas -= 10
 
@@ -106,21 +109,27 @@ async def analizar_simbolo(exchange, symbol, semaphore):
 
             prob_subir = max(0, min(100, int(puntos_alcistas)))
             prob_bajar = 100 - prob_subir
-
             conteo_tendencia = sum([alcista_1m, alcista_15m, alcista_1h, alcista_4h])
+
+            # --- CÁLCULO DE GESTIÓN DE RIESGO (S.L. y T.P.) ---
+            # Stop Loss basado en la banda inferior de Bollinger o un 2% por debajo si es muy ajustado
+            stop_loss = round(min(lower * 0.99, precio_actual * 0.98), 4)
+            riesgo = precio_actual - stop_loss
+            take_profit = round(precio_actual + (riesgo * 2.0), 4) # Ratio R:R 1:2
 
             return {
                 'Cripto': symbol,
                 'Precio ($)': round(precio_actual, 4),
+                'Prob_Subir_Num': prob_subir,
                 'Prob. Subir': f"{prob_subir}%",
-                'Prob. Bajar': f"{prob_bajar}%",
+                'Stop Loss ($)': stop_loss,
+                'Take Profit ($)': take_profit,
                 'Alineación (4T)': f"{conteo_tendencia}/4",
                 'MACD 1m': "🟢" if macd_1m > 0 else "🔴",
                 'MACD 15m': "🟢" if macd_15m > 0 else "🔴",
                 'MACD 1h': "🟢" if macd_1h > 0 else "🔴",
                 'MACD 4h': "🟢" if macd_4h > 0 else "🔴",
                 'RSI (1h)': round(rsi_actual, 1),
-                'Tendencia': "🚀 ALCISTA" if prob_subir >= 75 else "🔻 BAJISTA",
                 'raw_df': df_1h
             }
         except Exception:
@@ -137,62 +146,106 @@ async def ejecutar_escaneo():
     await exchange.close()
 
     resultados_validos = [r for r in resultados if r is not None]
-    resultados_validos.sort(key=lambda x: int(x['Prob. Subir'].replace('%', '')), reverse=True)
+    resultados_validos.sort(key=lambda x: x['Prob_Subir_Num'], reverse=True)
     
-    return [r for r in resultados_validos if int(r['Prob. Subir'].replace('%', '')) >= 75 or int(r['Prob. Bajar'].replace('%', '')) >= 75]
+    return [r for r in resultados_validos if r['Prob_Subir_Num'] >= 75 or (100 - r['Prob_Subir_Num']) >= 75]
 
-# Botón interactivo principal
-if st.button("🔍 Iniciar Escaneo Pro (4T + MACD en 4 Marcos)", type="primary"):
-    with st.spinner("Analizando confluencia completa de 1m, 15m, 1h y 4h (Precios + MACD)... Un momento."):
+# Botón de escaneo principal
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    btn_escanear = st.button("🔍 Iniciar Escaneo con Gestión de Riesgo", type="primary", use_container_width=True)
+
+if btn_escanear:
+    with st.spinner("Analizando confluencia completa y calculando S.L. / T.P. en MEXC... Un momento."):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         destacados = loop.run_until_complete(ejecutar_escaneo())
 
         if destacados:
-            st.success(f"¡Escaneo completado! Se encontraron {len(destacados)} oportunidades con alta confluencia.")
             st.session_state['destacados'] = destacados
         else:
             st.warning("No se encontraron criptomonedas cumpliendo los filtros estrictos en este momento.")
 
-# Mostrar tabla y gráficos interactivos si hay resultados
+# Si hay resultados, mostramos métricas, tabla avanzada y gráficos
 if 'destacados' in st.session_state and st.session_state['destacados']:
     st.markdown("---")
-    st.subheader("📋 Tabla de Resultados Avanzada")
     
-    df_visible = pd.DataFrame([{k: v for k, v in r.items() if k != 'raw_df'} for r in st.session_state['destacados']])
-    st.dataframe(df_visible, use_container_width=True)
+    total_encontrados = len(st.session_state['destacados'])
+    alcistas = sum(1 for r in st.session_state['destacados'] if r['Prob_Subir_Num'] >= 75)
+    
+    m1, m2 = st.columns(2)
+    with m1:
+        st.metric(label="Oportunidades Totales Detectadas", value=total_encontrados)
+    with m2:
+        st.metric(label="Activos con Alta Confluencia Alcista", value=alcistas)
+
+    st.markdown("### 📋 Tabla de Resultados con Niveles de Entrada y Salida")
+    
+    df_visible = pd.DataFrame([{k: v for k, v in r.items() if k not in ['raw_df', 'Prob_Subir_Num']} for r in st.session_state['destacados']])
+    
+    st.dataframe(
+        df_visible,
+        use_container_width=True,
+        column_config={
+            "Prob. Subir": st.column_config.ProgressColumn(
+                "Prob. Subir",
+                help="Porcentaje de probabilidad alcista calculado",
+                format="%s",
+                min_value=0,
+                max_value=100,
+            )
+        }
+    )
 
     st.markdown("---")
-    st.subheader("📊 Gráfico Técnico Interactivo (1h)")
+    st.subheader("📊 Gráfico Técnico Profesional (Estilo TradingView)")
+    
     simbolos_disponibles = [r['Cripto'] for r in st.session_state['destacados']]
-    cripto_seleccionada = st.selectbox("Elige una criptomoneda para visualizar:", simbolos_disponibles)
+    cripto_seleccionada = st.selectbox("Selecciona una criptomoneda para inspeccionar:", simbolos_disponibles)
 
     crypto_data = next(r for r in st.session_state['destacados'] if r['Cripto'] == cripto_seleccionada)
     df_plot = crypto_data['raw_df']
 
+    # Cálculos para gráficos
     df_plot['sma'] = df_plot['close'].rolling(20).mean()
     df_plot['std'] = df_plot['close'].rolling(20).std()
     df_plot['upper'] = df_plot['sma'] + (2 * df_plot['std'])
     df_plot['lower'] = df_plot['sma'] - (2 * df_plot['std'])
+    
+    # MACD para el subgráfico inferior
+    exp1 = df_plot['close'].ewm(span=12, adjust=False).mean()
+    exp2 = df_plot['close'].ewm(span=26, adjust=False).mean()
+    df_plot['macd'] = exp1 - exp2
+    df_plot['signal'] = df_plot['macd'].ewm(span=9, adjust=False).mean()
+    df_plot['hist'] = df_plot['macd'] - df_plot['signal']
+    
     df_plot['timestamp_dt'] = pd.to_datetime(df_plot['timestamp'], unit='ms')
 
-    fig = go.Figure()
+    # Crear figura con 2 filas (Subplots)
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3])
+
+    # Fila 1: Velas y Bollinger
     fig.add_trace(go.Candlestick(
-        x=df_plot['timestamp_dt'],
-        open=df_plot['open'], high=df_plot['high'],
-        low=df_plot['low'], close=df_plot['close'],
-        name='Precio (1h)'
-    ))
-    fig.add_trace(go.Scatter(x=df_plot['timestamp_dt'], y=df_plot['upper'], line=dict(color='rgba(250, 0, 0, 0.5)', width=1), name='Banda Superior'))
-    fig.add_trace(go.Scatter(x=df_plot['timestamp_dt'], y=df_plot['sma'], line=dict(color='rgba(0, 0, 250, 0.5)', width=1), name='SMA 20'))
-    fig.add_trace(go.Scatter(x=df_plot['timestamp_dt'], y=df_plot['lower'], line=dict(color='rgba(0, 250, 0, 0.5)', width=1), name='Banda Inferior', fill='tonexty', fillcolor='rgba(0, 250, 0, 0.05)'))
+        x=df_plot['timestamp_dt'], open=df_plot['open'], high=df_plot['high'],
+        low=df_plot['low'], close=df_plot['close'], name='Precio (1h)'
+    ), row=1, col=1)
+    
+    fig.add_trace(go.Scatter(x=df_plot['timestamp_dt'], y=df_plot['upper'], line=dict(color='rgba(250, 0, 0, 0.50)', width=1), name='Banda Superior'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df_plot['timestamp_dt'], y=df_plot['sma'], line=dict(color='rgba(0, 100, 250, 0.6)', width=1), name='SMA 20'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df_plot['timestamp_dt'], y=df_plot['lower'], line=dict(color='rgba(0, 250, 0, 0.50)', width=1), name='Banda Inferior', fill='tonexty', fillcolor='rgba(0, 250, 0, 0.03)'), row=1, col=1)
+
+    # Fila 2: Histograma MACD
+    colors = ['#00FF00' if val >= 0 else '#FF0000' for val in df_plot['hist']]
+    fig.add_trace(go.Bar(x=df_plot['timestamp_dt'], y=df_plot['hist'], marker_color=colors, name='MACD Histograma'), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df_plot['timestamp_dt'], y=df_plot['macd'], line=dict(color='#00ffff', width=1), name='MACD Line'), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df_plot['timestamp_dt'], y=df_plot['signal'], line=dict(color='#ff9900', width=1), name='Signal Line'), row=2, col=1)
 
     fig.update_layout(
-        title=f"Análisis Técnico de {cripto_seleccionada}",
-        xaxis_title="Tiempo",
-        yaxis_title="Precio (USDT)",
+        title=dict(text=f"<b>Análisis Técnico Avanzado: {cripto_seleccionada}</b>", font=dict(size=18)),
         template="plotly_dark",
-        height=500
+        height=650,
+        xaxis_rangeslider_visible=False,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
 
     st.plotly_chart(fig, use_container_width=True)
