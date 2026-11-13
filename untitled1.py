@@ -8,7 +8,7 @@ import streamlit as st
 
 # Configuración de la página web
 st.set_page_config(
-    page_title="Terminal Cripto Pro - Binance Filter",
+    page_title="Terminal Cripto Pro - Volumen Real",
     page_icon="📈",
     layout="wide",
 )
@@ -25,11 +25,12 @@ st.markdown(
 )
 
 st.title(
-    "🚀 Terminal de Escaneo Cripto Pro (Filtro Binance + Perfil de Volumen)"
+    "🚀 Terminal de Escaneo Cripto Pro (Filtro de Liquidez + Perfil de"
+    " Volumen)"
 )
 st.markdown(
-    "Análisis multi-temporal (**1m, 15m, 1h, 4h**) filtrando únicamente"
-    " criptomonedas listadas en **Binance**."
+    "Análisis multi-temporal (**1m, 15m, 1h, 4h**) enfocado en los activos de"
+    " **mayor volumen y liquidez** de MEXC."
 )
 
 # --- BARRA LATERAL (CONFIGURACIÓN & WATCHLIST) ---
@@ -37,7 +38,7 @@ st.sidebar.header("⚙️ Configuración del Escáner")
 modo_escaneo = st.sidebar.radio(
     "Selecciona el Modo:",
     [
-        "Todo MEXC (Filtrado por Binance)",
+        "Top Activos por Volumen (Alta Liquidez)",
         "Mi Watchlist Personalizada",
     ],
 )
@@ -232,45 +233,36 @@ async def analizar_simbolo(exchange, symbol, semaphore):
 
 
 async def ejecutar_escaneo(simbolos_custom=None):
-  # Instanciamos Binance y MEXC de forma asíncrona
   exchange_mexc = ccxt.mexc(
       {"enableRateLimit": True, "options": {"defaultType": "spot"}}
   )
-  exchange_binance = ccxt.binance(
-      {"enableRateLimit": True, "options": {"defaultType": "spot"}}
-  )
-
-  await asyncio.gather(
-      exchange_mexc.load_markets(), exchange_binance.load_markets()
-  )
+  markets = await exchange_mexc.load_markets()
 
   if simbolos_custom:
-    # Si usa la watchlist, validamos que existan en MEXC
     simbolos = [
         s
         for s in simbolos_custom
         if s in exchange_mexc.markets and exchange_mexc.markets[s]["active"]
     ]
   else:
-    # Obtenemos los pares USDT activos de Binance como lista blanca
-    pares_binance = {
-        s
-        for s, m in exchange_binance.markets.items()
-        if s.endswith("/USDT") and m["active"]
-    }
+    # Obtenemos los tickers para medir el volumen de 24h en MEXC
+    tickers = await exchange_mexc.fetch_tickers()
 
-    # Filtramos los mercados de MEXC para quedarnos solo con los que están en Binance
-    simbolos = [
-        s
-        for s, m in exchange_mexc.markets.items()
-        if s.endswith("/USDT") and m["active"] and s in pares_binance
-    ]
+    # Filtramos pares USDT activos y ordenamos por volumen de negociación (quoteVolume)
+    pares_volumen = []
+    for s, m in exchange_mexc.markets.items():
+      if s.endswith("/USDT") and m["active"] and s in tickers:
+        volumen_24h = tickers[s].get("quoteVolume", 0) or 0
+        pares_volumen.append((s, volumen_24h))
+
+    # Ordenar de mayor a menor volumen y tomar los top 250 (equivalente al ranking de Binance)
+    pares_volumen.sort(key=lambda x: x[1], reverse=True)
+    simbolos = [item[0] for item in pares_volumen[:250]]
 
   semaphore = asyncio.Semaphore(10)
   tareas = [analizar_simbolo(exchange_mexc, s, semaphore) for s in simbolos]
   resultados = await asyncio.gather(*tareas)
-
-  await asyncio.gather(exchange_mexc.close(), exchange_binance.close())
+  await exchange_mexc.close()
 
   resultados_validos = [r for r in resultados if r is not None]
   resultados_validos.sort(key=lambda x: x["Prob_Subir_Num"], reverse=True)
@@ -289,16 +281,17 @@ async def ejecutar_escaneo(simbolos_custom=None):
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
   btn_escanear = st.button(
-      "🔍 Iniciar Escaneo (Filtrado por Binance)",
-      type="primary",
-      use_container_width=True,
+      "🔍 Iniciar Escaneo Pro", type="primary", use_container_width=True
   )
 
 if btn_escanear:
   texto_spinner = (
       "Analizando Watchlist Personalizada..."
       if modo_escaneo == "Mi Watchlist Personalizada"
-      else "Sincronizando Binance y escaneando MEXC..."
+      else (
+          "Filtrando los top 250 activos por volumen y analizando"
+          " confluencia..."
+      )
   )
   with st.spinner(texto_spinner):
     loop = asyncio.new_event_loop()
@@ -326,13 +319,11 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
 
   m1, m2 = st.columns(2)
   with m1:
-    st.metric(
-        label="Activos en Binance analizados en MEXC", value=total_encontrados
-    )
+    st.metric(label="Activos de alta liquidez analizados", value=total_encontrados)
   with m2:
     st.metric(label="Con Tendencia Alcista Fuerte", value=alcistas)
 
-  st.markdown("### 📋 Tabla de Resultados (Filtrado Institucional Binance)")
+  st.markdown("### 📋 Tabla de Resultados con Gestión de Riesgo")
 
   df_visible = pd.DataFrame(
       [
