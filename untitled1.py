@@ -39,7 +39,7 @@ st.markdown(
         letter-spacing: 0.5px;
     }
     
-    /* Tarjetas KPI de colores (Inspiradas en tu imagen) */
+    /* Tarjetas KPI de colores */
     .kpi-card {
         padding: 18px 20px;
         border-radius: 8px;
@@ -295,7 +295,6 @@ async def analizar_simbolo(exchange, symbol, semaphore):
 
       take_profit = round(precio_actual + (riesgo * 2.0), 4)
 
-      # Calcular proporción volumen comprador vs vendedor (aproximado por velas verdes/rojas)
       vol_compra = df_1h[df_1h["close"] >= df_1h["open"]]["volume"].sum()
       vol_venta = df_1h[df_1h["close"] < df_1h["open"]]["volume"].sum()
 
@@ -416,7 +415,6 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
         st.session_state["ultima_buscada"]
     )
 
-  # Selector superior estilo barra de filtros
   col_sel, col_info = st.columns([2, 3])
   with col_sel:
     cripto_seleccionada = st.selectbox(
@@ -435,7 +433,7 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
       None,
   )
 
-  # 1. TARJETAS KPI SUPERIORES DE COLORES (Igual que el diseño de referencia)
+  # 1. TARJETAS KPI SUPERIORES DE COLORES
   k1, k2, k3, k4 = st.columns(4)
 
   with k1:
@@ -454,4 +452,296 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
   with k2:
     st.markdown(
         f"""
-        <div class="kpi-card card-
+        <div class="kpi-card card-blue">
+            <div class="kpi-title">🎯 PUNTO DE CONTROL (POC)</div>
+            <div class="kpi-value">${crypto_data['POC (Vol)']}</div>
+            <div class="kpi-sub">Zona de mayor liquidez (1h)</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+  with k3:
+    st.markdown(
+        f"""
+        <div class="kpi-card card-orange">
+            <div class="kpi-title">📈 TENDENCIA MULTI-TEMPORAL</div>
+            <div class="kpi-value" style="font-size: 1.45rem; padding-top:4px;">{crypto_data['Tendencia (3T)']}</div>
+            <div class="kpi-sub">MACD: 15m {crypto_data['MACD 15m']} | 1h {crypto_data['MACD 1h']} | 4h {crypto_data['MACD 4h']}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+  with k4:
+    st.markdown(
+        f"""
+        <div class="kpi-card card-pink">
+            <div class="kpi-title">⚡ ÍNDICE DE CONFLUENCIA</div>
+            <div class="kpi-value">{crypto_data['Prob. Subir']}</div>
+            <div class="kpi-sub">RSI (1h): {crypto_data['RSI (1h)']} pts</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+  # 2. FILA SECUNDARIA DE DATOS
+  st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+  s1, s2, s3, s4 = st.columns(4)
+  with s1:
+    st.markdown(
+        f"<div class='mini-stat'><div class='mini-stat-label'>🛡️ Stop Loss"
+        f" Sugerido</div><div class='mini-stat-val'"
+        f" style='color:#ff6b6b;'>${crypto_data['Stop Loss ($)']}</div></div>",
+        unsafe_allow_html=True,
+    )
+  with s2:
+    st.markdown(
+        f"<div class='mini-stat'><div class='mini-stat-label'>🚀 Take Profit"
+        f" (2:1)</div><div class='mini-stat-val'"
+        f" style='color:#51cf66;'>${crypto_data['Take Profit ($)']}</div></div>",
+        unsafe_allow_html=True,
+    )
+  with s3:
+    btc_precio = f"${btc_data['Precio ($)']}" if btc_data else "N/A"
+    btc_tend = btc_data["Tendencia (3T)"] if btc_data else "-"
+    st.markdown(
+        f"<div class='mini-stat'><div class='mini-stat-label'>₿ Referencia"
+        f" Bitcoin</div><div class='mini-stat-val'>{btc_precio} <span"
+        f" style='font-size:0.8rem; color:#ffa726;'>({btc_tend})</span></div></div>",
+        unsafe_allow_html=True,
+    )
+  with s4:
+    total_activos = len(st.session_state["destacados"])
+    st.markdown(
+        f"<div class='mini-stat'><div class='mini-stat-label'>📡 Activos"
+        f" Escaneados</div><div"
+        f" class='mini-stat-val'>{total_activos}</div></div>",
+        unsafe_allow_html=True,
+    )
+
+  st.markdown("<br>", unsafe_allow_html=True)
+
+  # 3. PESTAÑAS DE NAVEGACIÓN
+  tab1, tab2 = st.tabs([
+      "📈 VISTA GENERAL Y GRÁFICOS",
+      "📋 TABLA COMPLETA DE MERCADO",
+  ])
+
+  with tab1:
+    df_plot = crypto_data["raw_df"].copy()
+    df_plot["sma"] = df_plot["close"].rolling(20).mean()
+    df_plot["std"] = df_plot["close"].rolling(20).std()
+    df_plot["upper"] = df_plot["sma"] + (2 * df_plot["std"])
+    df_plot["lower"] = df_plot["sma"] - (2 * df_plot["std"])
+
+    exp1 = df_plot["close"].ewm(span=12, adjust=False).mean()
+    exp2 = df_plot["close"].ewm(span=26, adjust=False).mean()
+    df_plot["macd"] = exp1 - exp2
+    df_plot["signal"] = df_plot["macd"].ewm(span=9, adjust=False).mean()
+    df_plot["hist"] = df_plot["macd"] - df_plot["signal"]
+    df_plot["timestamp_dt"] = pd.to_datetime(df_plot["timestamp"], unit="ms")
+
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.04,
+        row_heights=[0.72, 0.28],
+    )
+
+    fig.add_trace(
+        go.Candlestick(
+            x=df_plot["timestamp_dt"],
+            open=df_plot["open"],
+            high=df_plot["high"],
+            low=df_plot["low"],
+            close=df_plot["close"],
+            name="Precio (1h)",
+            increasing_line_color="#26a69a",
+            decreasing_line_color="#ef5350",
+        ),
+        row=1,
+        col=1,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=df_plot["timestamp_dt"],
+            y=df_plot["upper"],
+            line=dict(color="rgba(239, 83, 80, 0.4)", width=1),
+            name="Banda Superior",
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df_plot["timestamp_dt"],
+            y=df_plot["sma"],
+            line=dict(color="#29b6f6", width=1.5),
+            name="Media Móvil (20)",
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df_plot["timestamp_dt"],
+            y=df_plot["lower"],
+            line=dict(color="rgba(38, 166, 154, 0.4)", width=1),
+            name="Banda Inferior",
+            fill="tonexty",
+            fillcolor="rgba(41, 182, 246, 0.04)",
+        ),
+        row=1,
+        col=1,
+    )
+
+    poc_val = crypto_data["POC (Vol)"]
+    fig.add_hline(
+        y=poc_val,
+        line_dash="dash",
+        line_color="#ffa726",
+        annotation_text=f"POC: ${poc_val}",
+        row=1,
+        col=1,
+    )
+
+    colors_macd = [
+        "#26a69a" if val >= 0 else "#ef5350" for val in df_plot["hist"]
+    ]
+    fig.add_trace(
+        go.Bar(
+            x=df_plot["timestamp_dt"],
+            y=df_plot["hist"],
+            marker_color=colors_macd,
+            name="Histograma MACD",
+        ),
+        row=2,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df_plot["timestamp_dt"],
+            y=df_plot["macd"],
+            line=dict(color="#29b6f6", width=1.2),
+            name="MACD",
+        ),
+        row=2,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df_plot["timestamp_dt"],
+            y=df_plot["signal"],
+            line=dict(color="#ffa726", width=1.2),
+            name="Señal",
+        ),
+        row=2,
+        col=1,
+    )
+
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#0b0e14",
+        plot_bgcolor="#151922",
+        height=550,
+        xaxis_rangeslider_visible=False,
+        margin=dict(l=15, r=15, t=30, b=15),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
+        ),
+    )
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor="#21262d")
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor="#21262d")
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("#### 📊 Distribución de Volumen y Fuerza del Mercado")
+    c_don1, c_don2 = st.columns(2)
+
+    with c_don1:
+      fig_donut1 = go.Figure(
+          data=[
+              go.Pie(
+                  labels=["Volumen Comprador (1h)", "Volumen Vendedor (1h)"],
+                  values=[crypto_data["vol_compra"], crypto_data["vol_venta"]],
+                  hole=0.55,
+                  marker_colors=["#26a69a", "#ef5350"],
+                  textinfo="percent+label",
+              )
+          ]
+      )
+      fig_donut1.update_layout(
+          title_text=f"Presión Compra vs Venta ({crypto_data['Cripto']})",
+          template="plotly_dark",
+          paper_bgcolor="#151922",
+          height=320,
+          margin=dict(l=20, r=20, t=45, b=20),
+          showlegend=False,
+      )
+      st.plotly_chart(fig_donut1, use_container_width=True)
+
+    with c_don2:
+      top_5 = sorted(
+          st.session_state["destacados"],
+          key=lambda x: x["Prob_Subir_Num"],
+          reverse=True,
+      )[:5]
+      fig_donut2 = go.Figure(
+          data=[
+              go.Pie(
+                  labels=[x["Cripto"] for x in top_5],
+                  values=[x["Prob_Subir_Num"] for x in top_5],
+                  hole=0.55,
+                  marker_colors=[
+                      "#29b6f6",
+                      "#ef5350",
+                      "#66bb6a",
+                      "#ffa726",
+                      "#ab47bc",
+                  ],
+                  textinfo="label+value",
+              )
+          ]
+      )
+      fig_donut2.update_layout(
+          title_text="Top Activos por Fuerza de Confluencia",
+          template="plotly_dark",
+          paper_bgcolor="#151922",
+          height=320,
+          margin=dict(l=20, r=20, t=45, b=20),
+          showlegend=False,
+      )
+      st.plotly_chart(fig_donut2, use_container_width=True)
+
+  with tab2:
+    st.markdown("### 📋 Resumen Detallado de Activos Escaneados (BTC Primero)")
+    columnas_excluir = [
+        "raw_df",
+        "Prob_Subir_Num",
+        "vol_compra",
+        "vol_venta",
+        "Cambio_1h",
+    ]
+    df_visible = pd.DataFrame(
+        [
+            {k: v for k, v in r.items() if k not in columnas_excluir}
+            for r in st.session_state["destacados"]
+        ]
+    )
+
+    st.dataframe(
+        df_visible,
+        use_container_width=True,
+        column_config={
+            "Prob. Subir": st.column_config.ProgressColumn(
+                "Prob. Subir",
+                help="Puntuación técnica en 15m, 1h y 4h",
+                format="%s",
+                min_value=0,
+                max_value=100,
+            )
+        },
+    )
