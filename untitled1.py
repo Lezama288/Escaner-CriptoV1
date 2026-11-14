@@ -8,7 +8,7 @@ import streamlit as st
 
 # Configuración de la página web
 st.set_page_config(
-    page_title="Terminal Cripto Pro - Volumen Real",
+    page_title="Terminal Cripto Pro - 3 Temporalidades",
     page_icon="📈",
     layout="wide",
 )
@@ -24,13 +24,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title(
-    "🚀 Terminal de Escaneo Cripto Pro (Filtro de Liquidez + Perfil de"
-    " Volumen)"
-)
+st.title("🚀 Terminal de Escaneo Cripto Pro (BTC Primero + 15m, 1h, 4h)")
 st.markdown(
-    "Análisis multi-temporal (**1m, 15m, 1h, 4h**) enfocado en los activos de"
-    " **mayor volumen y liquidez** de MEXC."
+    "Análisis multi-temporal enfocado en **15m, 1h y 4h** con **BTC/USDT**"
+    " fijado en la primera posición."
 )
 
 # --- BARRA LATERAL (CONFIGURACIÓN & WATCHLIST) ---
@@ -69,46 +66,43 @@ def calcular_macd_hist(df):
   return hist.iloc[-1]
 
 
-def calcular_perfil_volumen(df):
-  """Calcula el Punto de Control (POC) aproximado basado en volumen y precio"""
+def calcular_perfil_volumen_ponderado(df):
+  """Calcula el Punto de Control (POC) ponderado por precio típico y volumen"""
   try:
-    precio_min = df["low"].min()
-    precio_max = df["high"].max()
+    if len(df) == 0:
+      return 0
+    precio_min, precio_max = df["low"].min(), df["high"].max()
     if precio_min == precio_max:
       return df["close"].iloc[-1]
-    bins = np.linspace(precio_min, precio_max, 15)
-    df["bin"] = pd.cut(df["close"], bins=bins, include_lowest=True)
+
+    bins = np.linspace(precio_min, precio_max, 20)
+    typical_price = (df["high"] + df["low"] + df["close"]) / 3
+    df["bin"] = pd.cut(typical_price, bins=bins, include_lowest=True)
+
     vol_por_bin = df.groupby("bin", observed=False)["volume"].sum()
-    if vol_por_bin.empty:
+    if vol_por_bin.empty or vol_por_bin.max() == 0:
       return df["close"].iloc[-1]
+
     poc_bin = vol_por_bin.idxmax()
     poc_precio = (poc_bin.left + poc_bin.right) / 2
     return round(poc_precio, 4)
-  except:
+  except Exception:
     return df["close"].iloc[-1]
 
 
 async def analizar_simbolo(exchange, symbol, semaphore):
   async with semaphore:
     try:
-      v_1m, v_15m, v_1h, v_4h = await asyncio.gather(
-          exchange.fetch_ohlcv(symbol, timeframe="1m", limit=50),
+      # Descarga concurrente para las 3 temporalidades clave
+      v_15m, v_1h, v_4h = await asyncio.gather(
           exchange.fetch_ohlcv(symbol, timeframe="15m", limit=50),
           exchange.fetch_ohlcv(symbol, timeframe="1h", limit=50),
           exchange.fetch_ohlcv(symbol, timeframe="4h", limit=50),
       )
 
-      if (
-          len(v_1m) < 35
-          or len(v_15m) < 35
-          or len(v_1h) < 35
-          or len(v_4h) < 35
-      ):
+      if len(v_15m) < 35 or len(v_1h) < 35 or len(v_4h) < 35:
         return None
 
-      df_1m = pd.DataFrame(
-          v_1m, columns=["timestamp", "open", "high", "low", "close", "volume"]
-      )
       df_15m = pd.DataFrame(
           v_15m, columns=["timestamp", "open", "high", "low", "close", "volume"]
       )
@@ -127,7 +121,8 @@ async def analizar_simbolo(exchange, symbol, semaphore):
       gain = delta.where(delta > 0, 0).rolling(14).mean()
       loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
       rs = gain / loss
-      rsi_actual = (100 - (100 / (1 + rs))).iloc[-1]
+      rsi_series = 100 - (100 / (1 + rs))
+      rsi_actual = rsi_series.iloc[-1] if not rsi_series.empty else 50.0
 
       sma_20 = close_1h.rolling(20).mean()
       std_20 = close_1h.rolling(20).std()
@@ -138,90 +133,72 @@ async def analizar_simbolo(exchange, symbol, semaphore):
       vol_actual = df_1h["volume"].iloc[-1]
       vol_prom = df_1h["volume"].rolling(20).mean().iloc[-1]
 
-      # MACD en 4 Tiempos
-      macd_1m = calcular_macd_hist(df_1m)
+      # MACD en las 3 Temporalidades
       macd_15m = calcular_macd_hist(df_15m)
       macd_1h = calcular_macd_hist(df_1h)
       macd_4h = calcular_macd_hist(df_4h)
 
-      # Tendencia de Precios en 4 Tiempos
-      alcista_1m = precio_actual > df_1m["close"].rolling(20).mean().iloc[-1]
-      alcista_15m = precio_actual > df_15m["close"].rolling(20).mean().iloc[-1]
+      # Tendencia de Precios en las 3 Temporalidades (Precio vs SMA 20)
+      alcista_15m = (
+          precio_actual > df_15m["close"].rolling(20).mean().iloc[-1]
+      )
       alcista_1h = precio_actual > sma
       alcista_4h = precio_actual > df_4h["close"].rolling(20).mean().iloc[-1]
 
-      # Puntuación
+      # Puntuación estructurada (Ponderación lógica)
       puntos_alcistas = 50
-      if alcista_4h:
-        puntos_alcistas += 6
-      else:
-        puntos_alcistas -= 6
-      if alcista_1h:
-        puntos_alcistas += 5
-      else:
-        puntos_alcistas -= 5
-      if alcista_15m:
-        puntos_alcistas += 4
-      else:
-        puntos_alcistas -= 4
-      if alcista_1m:
-        puntos_alcistas += 3
-      else:
-        puntos_alcistas -= 3
+      puntos_alcistas += 8 if alcista_4h else -8
+      puntos_alcistas += 6 if alcista_1h else -6
+      puntos_alcistas += 4 if alcista_15m else -4
 
-      if macd_4h > 0:
-        puntos_alcistas += 10
-      else:
-        puntos_alcistas -= 10
-      if macd_1h > 0:
-        puntos_alcistas += 8
-      else:
-        puntos_alcistas -= 8
-      if macd_15m > 0:
-        puntos_alcistas += 6
-      else:
-        puntos_alcistas -= 6
-      if macd_1m > 0:
-        puntos_alcistas += 4
-      else:
-        puntos_alcistas -= 4
+      puntos_alcistas += 12 if macd_4h > 0 else -12
+      puntos_alcistas += 9 if macd_1h > 0 else -9
+      puntos_alcistas += 6 if macd_15m > 0 else -6
 
-      if precio_actual <= lower * 1.01:
-        puntos_alcistas += 10
-      elif precio_actual >= upper * 0.99:
-        puntos_alcistas -= 10
+      if not np.isnan(lower) and not np.isnan(upper):
+        if precio_actual <= lower * 1.01:
+          puntos_alcistas += 8
+        elif precio_actual >= upper * 0.99:
+          puntos_alcistas -= 8
 
-      if rsi_actual < 30:
-        puntos_alcistas += 8
-      elif rsi_actual > 70:
-        puntos_alcistas -= 8
-
-      if vol_actual > (vol_prom * 1.5):
-        if macd_1h > 0:
-          puntos_alcistas += 5
-        else:
-          puntos_alcistas -= 5
+      if not np.isnan(rsi_actual):
+        if rsi_actual < 30:
+          puntos_alcistas += 6
+        elif rsi_actual > 70:
+          puntos_alcistas -= 6
 
       prob_subir = max(0, min(100, int(puntos_alcistas)))
-      prob_bajar = 100 - prob_subir
-      conteo_tendencia = sum([alcista_1m, alcista_15m, alcista_1h, alcista_4h])
+      conteo_tendencia = sum([alcista_15m, alcista_1h, alcista_4h])
+
+      # Definir texto de Tendencia General
+      if conteo_tendencia == 3:
+        tendencia_txt = "🚀 Alcista Fuerte"
+      elif conteo_tendencia == 2:
+        tendencia_txt = "📈 Alcista Moderada"
+      elif conteo_tendencia == 1:
+        tendencia_txt = "📉 Bajista Moderada"
+      else:
+        tendencia_txt = "⚠️ Bajista Fuerte"
 
       # --- GESTIÓN DE RIESGO ---
-      poc = calcular_perfil_volumen(df_1h)
+      poc = calcular_perfil_volumen_ponderado(df_1h)
       stop_loss = round(min(lower * 0.99, poc * 0.98, precio_actual * 0.97), 4)
       riesgo = precio_actual - stop_loss
+      if riesgo <= 0:
+        stop_loss = round(precio_actual * 0.97, 4)
+        riesgo = precio_actual - stop_loss
+
       take_profit = round(precio_actual + (riesgo * 2.0), 4)
 
       return {
           "Cripto": symbol,
           "Precio ($)": round(precio_actual, 4),
+          "Tendencia (3T)": tendencia_txt,
           "POC (Vol)": poc,
           "Prob_Subir_Num": prob_subir,
           "Prob. Subir": f"{prob_subir}%",
           "Stop Loss ($)": stop_loss,
           "Take Profit ($)": take_profit,
-          "Alineación (4T)": f"{conteo_tendencia}/4",
-          "MACD 1m": "🟢" if macd_1m > 0 else "🔴",
           "MACD 15m": "🟢" if macd_15m > 0 else "🔴",
           "MACD 1h": "🟢" if macd_1h > 0 else "🔴",
           "MACD 4h": "🟢" if macd_4h > 0 else "🔴",
@@ -236,45 +213,50 @@ async def ejecutar_escaneo(simbolos_custom=None):
   exchange_mexc = ccxt.mexc(
       {"enableRateLimit": True, "options": {"defaultType": "spot"}}
   )
-  markets = await exchange_mexc.load_markets()
+  try:
+    await exchange_mexc.load_markets()
 
-  if simbolos_custom:
-    simbolos = [
-        s
-        for s in simbolos_custom
-        if s in exchange_mexc.markets and exchange_mexc.markets[s]["active"]
-    ]
-  else:
-    # Obtenemos los tickers para medir el volumen de 24h en MEXC
-    tickers = await exchange_mexc.fetch_tickers()
+    if simbolos_custom:
+      simbolos = [
+          s
+          for s in simbolos_custom
+          if s in exchange_mexc.markets and exchange_mexc.markets[s]["active"]
+      ]
+      # Asegurar que BTC/USDT esté presente si existe en el mercado
+      if "BTC/USDT" in exchange_mexc.markets and "BTC/USDT" not in simbolos:
+        simbolos.insert(0, "BTC/USDT")
+    else:
+      tickers = await exchange_mexc.fetch_tickers()
+      pares_volumen = []
+      for s, m in exchange_mexc.markets.items():
+        if s.endswith("/USDT") and m["active"] and s in tickers:
+          volumen_24h = tickers[s].get("quoteVolume", 0) or 0
+          pares_volumen.append((s, volumen_24h))
 
-    # Filtramos pares USDT activos y ordenamos por volumen de negociación (quoteVolume)
-    pares_volumen = []
-    for s, m in exchange_mexc.markets.items():
-      if s.endswith("/USDT") and m["active"] and s in tickers:
-        volumen_24h = tickers[s].get("quoteVolume", 0) or 0
-        pares_volumen.append((s, volumen_24h))
+      pares_volumen.sort(key=lambda x: x[1], reverse=True)
+      simbolos = [item[0] for item in pares_volumen[:140]]
+      # Asegurar que BTC esté arriba si no se coló por volumen
+      if "BTC/USDT" in simbolos:
+        simbolos.remove("BTC/USDT")
+      simbolos.insert(0, "BTC/USDT")
 
-    # Ordenar de mayor a menor volumen y tomar los top 250 (equivalente al ranking de Binance)
-    pares_volumen.sort(key=lambda x: x[1], reverse=True)
-    simbolos = [item[0] for item in pares_volumen[:250]]
+    # Usamos semáforo para controlar concurrencia
+    semaphore = asyncio.Semaphore(8)
+    tareas = [analizar_simbolo(exchange_mexc, s, semaphore) for s in simbolos]
+    resultados = await asyncio.gather(*tareas)
+    resultados_validos = [r for r in resultados if r is not None]
 
-  semaphore = asyncio.Semaphore(10)
-  tareas = [analizar_simbolo(exchange_mexc, s, semaphore) for s in simbolos]
-  resultados = await asyncio.gather(*tareas)
-  await exchange_mexc.close()
+    # Ordenar resultados asegurando que BTC/USDT quede siempre de primero
+    def ordenar_btc_primero(x):
+      if x["Cripto"] == "BTC/USDT":
+        return (-1, -x["Prob_Subir_Num"])
+      return (0, -x["Prob_Subir_Num"])
 
-  resultados_validos = [r for r in resultados if r is not None]
-  resultados_validos.sort(key=lambda x: x["Prob_Subir_Num"], reverse=True)
-
-  if simbolos_custom:
+    resultados_validos.sort(key=ordenar_btc_primero)
     return resultados_validos
-  else:
-    return [
-        r
-        for r in resultados_validos
-        if r["Prob_Subir_Num"] >= 75 or (100 - r["Prob_Subir_Num"]) >= 75
-    ]
+
+  finally:
+    await exchange_mexc.close()
 
 
 # Botón de escaneo principal
@@ -286,16 +268,20 @@ with col2:
 
 if btn_escanear:
   texto_spinner = (
-      "Analizando Watchlist Personalizada..."
+      "Analizando Watchlist y posicionando a BTC..."
       if modo_escaneo == "Mi Watchlist Personalizada"
       else (
-          "Filtrando los top 250 activos por volumen y analizando"
-          " confluencia..."
+          "Escaneando top activos (con BTC al frente) y analizando 3"
+          " temporalidades..."
       )
   )
   with st.spinner(texto_spinner):
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    try:
+      loop = asyncio.get_event_loop()
+    except RuntimeError:
+      loop = asyncio.new_event_loop()
+      asyncio.set_event_loop(loop)
+
     destacados = loop.run_until_complete(
         ejecutar_escaneo(simbolos_personalizados)
     )
@@ -304,8 +290,8 @@ if btn_escanear:
       st.session_state["destacados"] = destacados
     else:
       st.warning(
-          "No se encontraron criptomonedas cumpliendo los criterios en este"
-          " momento."
+          "No se pudieron obtener datos del exchange o no hay resultados"
+          " válidos."
       )
 
 # Si hay resultados, mostramos métricas, tabla avanzada y gráficos
@@ -314,14 +300,14 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
 
   total_encontrados = len(st.session_state["destacados"])
   alcistas = sum(
-      1 for r in st.session_state["destacados"] if r["Prob_Subir_Num"] >= 75
+      1 for r in st.session_state["destacados"] if r["Prob_Subir_Num"] >= 65
   )
 
   m1, m2 = st.columns(2)
   with m1:
-    st.metric(label="Activos de alta liquidez analizados", value=total_encontrados)
+    st.metric(label="Activos analizados con éxito", value=total_encontrados)
   with m2:
-    st.metric(label="Con Tendencia Alcista Fuerte", value=alcistas)
+    st.metric(label="Con sesgo Favorable (>= 65%)", value=alcistas)
 
   st.markdown("### 📋 Tabla de Resultados con Gestión de Riesgo")
 
@@ -338,7 +324,7 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
       column_config={
           "Prob. Subir": st.column_config.ProgressColumn(
               "Prob. Subir",
-              help="Porcentaje de probabilidad alcista con confluencia",
+              help="Puntuación técnica en 15m, 1h y 4h",
               format="%s",
               min_value=0,
               max_value=100,
@@ -357,7 +343,7 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
   crypto_data = next(
       r for r in st.session_state["destacados"] if r["Cripto"] == cripto_seleccionada
   )
-  df_plot = crypto_data["raw_df"]
+  df_plot = crypto_data["raw_df"].copy()
 
   # Cálculos para gráficos
   df_plot["sma"] = df_plot["close"].rolling(20).mean()
@@ -421,11 +407,22 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
       go.Scatter(
           x=df_plot["timestamp_dt"],
           y=df_plot["lower"],
-          line=dict(color="rgba(0, 250, 0, 0.50)", width=1),
+          line=dict(color="rgba(0, 100, 250, 0.50)", width=1),
           name="Banda Inferior",
           fill="tonexty",
-          fillcolor="rgba(0, 250, 0, 0.03)",
+          fillcolor="rgba(0, 100, 250, 0.03)",
       ),
+      row=1,
+      col=1,
+  )
+
+  # Línea horizontal para marcar el POC calculado
+  poc_val = crypto_data["POC (Vol)"]
+  fig.add_hline(
+      y=poc_val,
+      line_dash="dash",
+      line_color="orange",
+      annotation_text=f"POC: {poc_val}",
       row=1,
       col=1,
   )
