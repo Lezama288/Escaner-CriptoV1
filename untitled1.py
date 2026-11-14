@@ -8,33 +8,122 @@ import streamlit as st
 
 # Configuración de la página web
 st.set_page_config(
-    page_title="Terminal Cripto Pro - 3 Temporalidades",
-    page_icon="📈",
+    page_title="Terminal Cripto Pro - Dashboard Analítico",
+    page_icon="📊",
     layout="wide",
 )
 
-# Estilo visual personalizado (Terminal institucional)
+# --- CSS PERSONALIZADO (ESTILO DASHBOARD PROFESIONAL CON TARJETAS KPI) ---
 st.markdown(
     """
     <style>
-    .main { background-color: #0e1117; }
-    .stMetric { background-color: #1a1c24; padding: 15px; border-radius: 10px; border: 1px solid #30333d; }
+    /* Fondo principal limpio y oscuro */
+    .main { background-color: #0b0e14; }
+    
+    /* Encabezado tipo barra superior */
+    .top-banner {
+        background: linear-gradient(90deg, #1d5c63 0%, #2a7b84 100%);
+        padding: 15px 25px;
+        border-radius: 8px;
+        color: white;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    .top-banner h2 {
+        margin: 0;
+        font-size: 1.3rem;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+    }
+    
+    /* Tarjetas KPI de colores (Inspiradas en tu imagen) */
+    .kpi-card {
+        padding: 18px 20px;
+        border-radius: 8px;
+        color: white;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+        margin-bottom: 10px;
+        transition: transform 0.2s ease;
+    }
+    .kpi-card:hover { transform: translateY(-3px); }
+    
+    .card-green { background: linear-gradient(135deg, #2e7d32 0%, #4caf50 100%); }
+    .card-blue  { background: linear-gradient(135deg, #1565c0 0%, #29b6f6 100%); }
+    .card-orange{ background: linear-gradient(135deg, #ef6c00 0%, #ffa726 100%); }
+    .card-pink  { background: linear-gradient(135deg, #880e4f 0%, #d81b60 100%); }
+    
+    .kpi-title {
+        font-size: 0.80rem;
+        text-transform: uppercase;
+        font-weight: 700;
+        opacity: 0.9;
+        margin-bottom: 6px;
+        letter-spacing: 0.5px;
+    }
+    .kpi-value {
+        font-size: 1.75rem;
+        font-weight: 800;
+        margin: 0;
+    }
+    .kpi-sub {
+        font-size: 0.78rem;
+        opacity: 0.85;
+        margin-top: 4px;
+    }
+
+    /* Métricas secundarias minimalistas */
+    .mini-stat {
+        background-color: #151922;
+        border: 1px solid #21262d;
+        padding: 12px 16px;
+        border-radius: 6px;
+        text-align: center;
+    }
+    .mini-stat-label { color: #8b949e; font-size: 0.75rem; text-transform: uppercase; }
+    .mini-stat-val { color: #f0f6fc; font-size: 1.25rem; font-weight: 700; }
+
+    /* Estilo de pestañas */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: #151922;
+        padding: 6px;
+        border-radius: 8px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 6px;
+        color: #c9d1d9;
+        padding: 8px 18px;
+        font-weight: 600;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #1d5c63 !important;
+        color: white !important;
+    }
     </style>
 """,
     unsafe_allow_html=True,
 )
 
-st.title("🚀 Terminal de Escaneo Cripto Pro (BTC Primero + 15m, 1h, 4h)")
+# --- BANNER SUPERIOR ---
 st.markdown(
-    "Análisis multi-temporal enfocado en **15m, 1h y 4h** con **BTC/USDT**"
-    " fijado en la primera posición."
+    """
+    <div class="top-banner">
+        <h2>📊 TERMINAL CRIPTO PRO — ESTADÍSTICAS Y FLUJO DE LIQUIDEZ (15m • 1h • 4h)</h2>
+        <span style="font-size: 0.85rem; opacity: 0.9;">Exchange: MEXC Spot | Ref: BTC/USDT</span>
+    </div>
+""",
+    unsafe_allow_html=True,
 )
 
-# --- BARRA LATERAL (CONFIGURACIÓN & WATCHLIST) ---
-st.sidebar.header("⚙️ Configuración del Escáner")
+# --- BARRA LATERAL (CONFIGURACIÓN, BUSCADOR & WATCHLIST) ---
+st.sidebar.header("⚙️ Panel de Control")
 modo_escaneo = st.sidebar.radio(
-    "Selecciona el Modo:",
+    "Modo de Operación:",
     [
+        "Buscar Moneda Específica (Seguimiento)",
         "Top Activos por Volumen (Alta Liquidez)",
         "Mi Watchlist Personalizada",
     ],
@@ -44,10 +133,28 @@ watchlist_default = (
     "BTC/USDT\nETH/USDT\nSOL/USDT\nXRP/USDT\nADA/USDT\nDOGE/USDT\nAVAX/USDT\nLINK/USDT\nPEPE/USDT\nRENDER/USDT"
 )
 simbolos_personalizados = None
+moneda_buscada = None
 
-if modo_escaneo == "Mi Watchlist Personalizada":
+if modo_escaneo == "Buscar Moneda Específica (Seguimiento)":
+  st.sidebar.subheader("🔎 Buscador en Vivo")
+  input_moneda = st.sidebar.text_input(
+      "Ticker de la moneda (ej. SOL, ASTER, ETH):",
+      value="SOL",
+      help=(
+          "Escribe el símbolo de la cripto. Siempre se analizará junto con"
+          " BTC/USDT."
+      ),
+  )
+  if input_moneda.strip():
+    ticker_limpio = input_moneda.strip().upper()
+    if "/" not in ticker_limpio:
+      ticker_limpio = f"{ticker_limpio}/USDT"
+    moneda_buscada = ticker_limpio
+    simbolos_personalizados = [moneda_buscada]
+
+elif modo_escaneo == "Mi Watchlist Personalizada":
   user_watchlist = st.sidebar.text_area(
-      "Introduce tus criptos (formato PAR/USDT, una por línea):",
+      "Tu lista de seguimiento (PAR/USDT):",
       watchlist_default,
       height=150,
   )
@@ -56,6 +163,7 @@ if modo_escaneo == "Mi Watchlist Personalizada":
   ]
 
 
+# --- FUNCIONES DE CÁLCULO ---
 def calcular_macd_hist(df):
   close = df["close"]
   exp1 = close.ewm(span=12, adjust=False).mean()
@@ -93,7 +201,6 @@ def calcular_perfil_volumen_ponderado(df):
 async def analizar_simbolo(exchange, symbol, semaphore):
   async with semaphore:
     try:
-      # Descarga concurrente para las 3 temporalidades clave
       v_15m, v_1h, v_4h = await asyncio.gather(
           exchange.fetch_ohlcv(symbol, timeframe="15m", limit=50),
           exchange.fetch_ohlcv(symbol, timeframe="1h", limit=50),
@@ -114,6 +221,8 @@ async def analizar_simbolo(exchange, symbol, semaphore):
       )
 
       precio_actual = df_1h["close"].iloc[-1]
+      precio_anterior = df_1h["close"].iloc[-2]
+      cambio_1h = ((precio_actual - precio_anterior) / precio_anterior) * 100
 
       # Indicadores 1h
       close_1h = df_1h["close"]
@@ -130,22 +239,19 @@ async def analizar_simbolo(exchange, symbol, semaphore):
       lower = (sma_20 - (2 * std_20)).iloc[-1]
       sma = sma_20.iloc[-1]
 
-      vol_actual = df_1h["volume"].iloc[-1]
-      vol_prom = df_1h["volume"].rolling(20).mean().iloc[-1]
-
       # MACD en las 3 Temporalidades
       macd_15m = calcular_macd_hist(df_15m)
       macd_1h = calcular_macd_hist(df_1h)
       macd_4h = calcular_macd_hist(df_4h)
 
-      # Tendencia de Precios en las 3 Temporalidades (Precio vs SMA 20)
+      # Tendencia de Precios en las 3 Temporalidades
       alcista_15m = (
           precio_actual > df_15m["close"].rolling(20).mean().iloc[-1]
       )
       alcista_1h = precio_actual > sma
       alcista_4h = precio_actual > df_4h["close"].rolling(20).mean().iloc[-1]
 
-      # Puntuación estructurada (Ponderación lógica)
+      # Puntuación estructurada
       puntos_alcistas = 50
       puntos_alcistas += 8 if alcista_4h else -8
       puntos_alcistas += 6 if alcista_1h else -6
@@ -170,17 +276,16 @@ async def analizar_simbolo(exchange, symbol, semaphore):
       prob_subir = max(0, min(100, int(puntos_alcistas)))
       conteo_tendencia = sum([alcista_15m, alcista_1h, alcista_4h])
 
-      # Definir texto de Tendencia General
       if conteo_tendencia == 3:
-        tendencia_txt = "🚀 Alcista Fuerte"
+        tendencia_txt = "Alcista Fuerte"
       elif conteo_tendencia == 2:
-        tendencia_txt = "📈 Alcista Moderada"
+        tendencia_txt = "Alcista Moderada"
       elif conteo_tendencia == 1:
-        tendencia_txt = "📉 Bajista Moderada"
+        tendencia_txt = "Bajista Moderada"
       else:
-        tendencia_txt = "⚠️ Bajista Fuerte"
+        tendencia_txt = "Bajista Fuerte"
 
-      # --- GESTIÓN DE RIESGO ---
+      # Gestión de Riesgo
       poc = calcular_perfil_volumen_ponderado(df_1h)
       stop_loss = round(min(lower * 0.99, poc * 0.98, precio_actual * 0.97), 4)
       riesgo = precio_actual - stop_loss
@@ -190,9 +295,14 @@ async def analizar_simbolo(exchange, symbol, semaphore):
 
       take_profit = round(precio_actual + (riesgo * 2.0), 4)
 
+      # Calcular proporción volumen comprador vs vendedor (aproximado por velas verdes/rojas)
+      vol_compra = df_1h[df_1h["close"] >= df_1h["open"]]["volume"].sum()
+      vol_venta = df_1h[df_1h["close"] < df_1h["open"]]["volume"].sum()
+
       return {
           "Cripto": symbol,
           "Precio ($)": round(precio_actual, 4),
+          "Cambio_1h": round(cambio_1h, 2),
           "Tendencia (3T)": tendencia_txt,
           "POC (Vol)": poc,
           "Prob_Subir_Num": prob_subir,
@@ -203,6 +313,8 @@ async def analizar_simbolo(exchange, symbol, semaphore):
           "MACD 1h": "🟢" if macd_1h > 0 else "🔴",
           "MACD 4h": "🟢" if macd_4h > 0 else "🔴",
           "RSI (1h)": round(rsi_actual, 1),
+          "vol_compra": vol_compra,
+          "vol_venta": vol_venta,
           "raw_df": df_1h,
       }
     except Exception:
@@ -222,7 +334,6 @@ async def ejecutar_escaneo(simbolos_custom=None):
           for s in simbolos_custom
           if s in exchange_mexc.markets and exchange_mexc.markets[s]["active"]
       ]
-      # Asegurar que BTC/USDT esté presente si existe en el mercado
       if "BTC/USDT" in exchange_mexc.markets and "BTC/USDT" not in simbolos:
         simbolos.insert(0, "BTC/USDT")
     else:
@@ -234,19 +345,16 @@ async def ejecutar_escaneo(simbolos_custom=None):
           pares_volumen.append((s, volumen_24h))
 
       pares_volumen.sort(key=lambda x: x[1], reverse=True)
-      simbolos = [item[0] for item in pares_volumen[:140]]
-      # Asegurar que BTC esté arriba si no se coló por volumen
+      simbolos = [item[0] for item in pares_volumen[:100]]
       if "BTC/USDT" in simbolos:
         simbolos.remove("BTC/USDT")
       simbolos.insert(0, "BTC/USDT")
 
-    # Usamos semáforo para controlar concurrencia
     semaphore = asyncio.Semaphore(8)
     tareas = [analizar_simbolo(exchange_mexc, s, semaphore) for s in simbolos]
     resultados = await asyncio.gather(*tareas)
     resultados_validos = [r for r in resultados if r is not None]
 
-    # Ordenar resultados asegurando que BTC/USDT quede siempre de primero
     def ordenar_btc_primero(x):
       if x["Cripto"] == "BTC/USDT":
         return (-1, -x["Prob_Subir_Num"])
@@ -259,218 +367,91 @@ async def ejecutar_escaneo(simbolos_custom=None):
     await exchange_mexc.close()
 
 
-# Botón de escaneo principal
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-  btn_escanear = st.button(
-      "🔍 Iniciar Escaneo Pro", type="primary", use_container_width=True
-  )
+# --- BOTÓN DE EJECUCIÓN ---
+texto_boton = (
+    f"🔄 Actualizar Datos de {moneda_buscada}"
+    if modo_escaneo == "Buscar Moneda Específica (Seguimiento)"
+    and moneda_buscada
+    else "🔍 Ejecutar Escáner de Mercado"
+)
 
-if btn_escanear:
-  texto_spinner = (
-      "Analizando Watchlist y posicionando a BTC..."
-      if modo_escaneo == "Mi Watchlist Personalizada"
-      else (
-          "Escaneando top activos (con BTC al frente) y analizando 3"
-          " temporalidades..."
+if st.sidebar.button(texto_boton, type="primary", use_container_width=True):
+  if (
+      modo_escaneo == "Buscar Moneda Específica (Seguimiento)"
+      and not moneda_buscada
+  ):
+    st.warning("Por favor, escribe el nombre de una moneda en el buscador.")
+  else:
+    with st.spinner("Sincronizando datos con MEXC..."):
+      try:
+        loop = asyncio.get_event_loop()
+      except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+      destacados = loop.run_until_complete(
+          ejecutar_escaneo(simbolos_personalizados)
       )
-  )
-  with st.spinner(texto_spinner):
-    try:
-      loop = asyncio.get_event_loop()
-    except RuntimeError:
-      loop = asyncio.new_event_loop()
-      asyncio.set_event_loop(loop)
 
-    destacados = loop.run_until_complete(
-        ejecutar_escaneo(simbolos_personalizados)
+      if destacados:
+        if modo_escaneo == "Buscar Moneda Específica (Seguimiento)":
+          encontrada = any(r["Cripto"] == moneda_buscada for r in destacados)
+          if not encontrada:
+            st.error(f"❌ El par **{moneda_buscada}** no está activo en MEXC.")
+        st.session_state["destacados"] = destacados
+        st.session_state["ultima_buscada"] = moneda_buscada
+      else:
+        st.warning("No se obtuvieron datos del exchange.")
+
+# --- RENDERIZADO DEL DASHBOARD ---
+if "destacados" in st.session_state and st.session_state["destacados"]:
+  simbolos_disponibles = [r["Cripto"] for r in st.session_state["destacados"]]
+
+  index_default = 0
+  if (
+      st.session_state.get("ultima_buscada")
+      and st.session_state["ultima_buscada"] in simbolos_disponibles
+  ):
+    index_default = simbolos_disponibles.index(
+        st.session_state["ultima_buscada"]
     )
 
-    if destacados:
-      st.session_state["destacados"] = destacados
-    else:
-      st.warning(
-          "No se pudieron obtener datos del exchange o no hay resultados"
-          " válidos."
-      )
-
-# Si hay resultados, mostramos métricas, tabla avanzada y gráficos
-if "destacados" in st.session_state and st.session_state["destacados"]:
-  st.markdown("---")
-
-  total_encontrados = len(st.session_state["destacados"])
-  alcistas = sum(
-      1 for r in st.session_state["destacados"] if r["Prob_Subir_Num"] >= 65
-  )
-
-  m1, m2 = st.columns(2)
-  with m1:
-    st.metric(label="Activos analizados con éxito", value=total_encontrados)
-  with m2:
-    st.metric(label="Con sesgo Favorable (>= 65%)", value=alcistas)
-
-  st.markdown("### 📋 Tabla de Resultados con Gestión de Riesgo")
-
-  df_visible = pd.DataFrame(
-      [
-          {k: v for k, v in r.items() if k not in ["raw_df", "Prob_Subir_Num"]}
-          for r in st.session_state["destacados"]
-      ]
-  )
-
-  st.dataframe(
-      df_visible,
-      use_container_width=True,
-      column_config={
-          "Prob. Subir": st.column_config.ProgressColumn(
-              "Prob. Subir",
-              help="Puntuación técnica en 15m, 1h y 4h",
-              format="%s",
-              min_value=0,
-              max_value=100,
-          )
-      },
-  )
-
-  st.markdown("---")
-  st.subheader("📊 Gráfico Técnico Profesional (Estilo TradingView)")
-
-  simbolos_disponibles = [r["Cripto"] for r in st.session_state["destacados"]]
-  cripto_seleccionada = st.selectbox(
-      "Selecciona una criptomoneda para inspeccionar:", simbolos_disponibles
-  )
+  # Selector superior estilo barra de filtros
+  col_sel, col_info = st.columns([2, 3])
+  with col_sel:
+    cripto_seleccionada = st.selectbox(
+        "📌 Activo en Inspección Detallada:",
+        simbolos_disponibles,
+        index=index_default,
+    )
 
   crypto_data = next(
-      r for r in st.session_state["destacados"] if r["Cripto"] == cripto_seleccionada
+      r
+      for r in st.session_state["destacados"]
+      if r["Cripto"] == cripto_seleccionada
   )
-  df_plot = crypto_data["raw_df"].copy()
-
-  # Cálculos para gráficos
-  df_plot["sma"] = df_plot["close"].rolling(20).mean()
-  df_plot["std"] = df_plot["close"].rolling(20).std()
-  df_plot["upper"] = df_plot["sma"] + (2 * df_plot["std"])
-  df_plot["lower"] = df_plot["sma"] - (2 * df_plot["std"])
-
-  # MACD para el subgráfico inferior
-  exp1 = df_plot["close"].ewm(span=12, adjust=False).mean()
-  exp2 = df_plot["close"].ewm(span=26, adjust=False).mean()
-  df_plot["macd"] = exp1 - exp2
-  df_plot["signal"] = df_plot["macd"].ewm(span=9, adjust=False).mean()
-  df_plot["hist"] = df_plot["macd"] - df_plot["signal"]
-
-  df_plot["timestamp_dt"] = pd.to_datetime(df_plot["timestamp"], unit="ms")
-
-  # Crear figura con 2 filas (Subplots)
-  fig = make_subplots(
-      rows=2,
-      cols=1,
-      shared_xaxes=True,
-      vertical_spacing=0.03,
-      row_heights=[0.7, 0.3],
+  btc_data = next(
+      (r for r in st.session_state["destacados"] if r["Cripto"] == "BTC/USDT"),
+      None,
   )
 
-  # Fila 1: Velas y Bollinger
-  fig.add_trace(
-      go.Candlestick(
-          x=df_plot["timestamp_dt"],
-          open=df_plot["open"],
-          high=df_plot["high"],
-          low=df_plot["low"],
-          close=df_plot["close"],
-          name="Precio (1h)",
-      ),
-      row=1,
-      col=1,
-  )
+  # 1. TARJETAS KPI SUPERIORES DE COLORES (Igual que el diseño de referencia)
+  k1, k2, k3, k4 = st.columns(4)
 
-  fig.add_trace(
-      go.Scatter(
-          x=df_plot["timestamp_dt"],
-          y=df_plot["upper"],
-          line=dict(color="rgba(250, 0, 0, 0.50)", width=1),
-          name="Banda Superior",
-      ),
-      row=1,
-      col=1,
-  )
-  fig.add_trace(
-      go.Scatter(
-          x=df_plot["timestamp_dt"],
-          y=df_plot["sma"],
-          line=dict(color="rgba(0, 100, 250, 0.6)", width=1),
-          name="SMA 20",
-      ),
-      row=1,
-      col=1,
-  )
-  fig.add_trace(
-      go.Scatter(
-          x=df_plot["timestamp_dt"],
-          y=df_plot["lower"],
-          line=dict(color="rgba(0, 100, 250, 0.50)", width=1),
-          name="Banda Inferior",
-          fill="tonexty",
-          fillcolor="rgba(0, 100, 250, 0.03)",
-      ),
-      row=1,
-      col=1,
-  )
+  with k1:
+    signo = "+" if crypto_data["Cambio_1h"] >= 0 else ""
+    st.markdown(
+        f"""
+        <div class="kpi-card card-green">
+            <div class="kpi-title">💰 PRECIO ACTUAL ({crypto_data['Cripto']})</div>
+            <div class="kpi-value">${crypto_data['Precio ($)']}</div>
+            <div class="kpi-sub">Variación 1h: {signo}{crypto_data['Cambio_1h']}%</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-  # Línea horizontal para marcar el POC calculado
-  poc_val = crypto_data["POC (Vol)"]
-  fig.add_hline(
-      y=poc_val,
-      line_dash="dash",
-      line_color="orange",
-      annotation_text=f"POC: {poc_val}",
-      row=1,
-      col=1,
-  )
-
-  # Fila 2: Histograma MACD
-  colors = ["#00FF00" if val >= 0 else "#FF0000" for val in df_plot["hist"]]
-  fig.add_trace(
-      go.Bar(
-          x=df_plot["timestamp_dt"],
-          y=df_plot["hist"],
-          marker_color=colors,
-          name="MACD Histograma",
-      ),
-      row=2,
-      col=1,
-  )
-  fig.add_trace(
-      go.Scatter(
-          x=df_plot["timestamp_dt"],
-          y=df_plot["macd"],
-          line=dict(color="#00ffff", width=1),
-          name="MACD Line",
-      ),
-      row=2,
-      col=1,
-  )
-  fig.add_trace(
-      go.Scatter(
-          x=df_plot["timestamp_dt"],
-          y=df_plot["signal"],
-          line=dict(color="#ff9900", width=1),
-          name="Signal Line",
-      ),
-      row=2,
-      col=1,
-  )
-
-  fig.update_layout(
-      title=dict(
-          text=f"<b>Análisis Técnico Avanzado: {cripto_seleccionada}</b>",
-          font=dict(size=18),
-      ),
-      template="plotly_dark",
-      height=650,
-      xaxis_rangeslider_visible=False,
-      legend=dict(
-          orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
-      ),
-  )
-
-  st.plotly_chart(fig, use_container_width=True)
+  with k2:
+    st.markdown(
+        f"""
+        <div class="kpi-card card-
