@@ -4,11 +4,12 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import requests
 import streamlit as st
 
 # Configuración de la página web
 st.set_page_config(
-    page_title="Terminal Cripto Pro - Dashboard Analítico",
+    page_title="Terminal Cripto Pro - Futuros OKX",
     page_icon="📊",
     layout="wide",
 )
@@ -20,7 +21,7 @@ st.markdown(
     .main { background-color: #0b0e14; }
     
     .top-banner {
-        background: linear-gradient(90deg, #1d5c63 0%, #2a7b84 100%);
+        background: linear-gradient(90deg, #1565c0 0%, #1e88e5 100%);
         padding: 15px 25px;
         border-radius: 8px;
         color: white;
@@ -95,7 +96,7 @@ st.markdown(
         font-weight: 600;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #1d5c63 !important;
+        background-color: #1565c0 !important;
         color: white !important;
     }
     </style>
@@ -103,64 +104,84 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --- BARRA LATERAL (CONFIGURACIÓN, BUSCADOR & DIRECCIÓN) ---
-st.sidebar.header("⚙️ Panel de Control")
+# --- BARRA LATERAL (CONFIGURACIÓN, BUSCADOR, DIRECCIÓN Y ALERTAS) ---
+st.sidebar.header("⚙️ Panel de Control (OKX Futuros)")
 modo_escaneo = st.sidebar.radio(
     "Modo de Operación:",
     [
         "Buscar Moneda Específica (Seguimiento)",
-        "Top Activos por Volumen (Alta Liquidez)",
+        "Top Futuros por Volumen (Alta Liquidez)",
         "Mi Watchlist Personalizada",
     ],
 )
 
-# Selector de Dirección de Operación (Long vs Short)
 st.sidebar.markdown("---")
-st.sidebar.header("🎯 Plan de Trading")
+st.sidebar.header("🎯 Plan de Trading & Liquidez")
 direccion_trading = st.sidebar.selectbox(
     "Dirección de la Operación:",
     ["📈 Alcista (Long)", "📉 Bajista (Short)"],
-    help=(
-        "Selecciona si planeas buscar oportunidades de compra (Long) o de venta"
-        " en corto (Short)."
-    ),
+)
+
+vol_minimo = st.sidebar.number_input(
+    "Volumen Mínimo 24h (USDT):",
+    min_value=0,
+    value=100000,
+    step=50000,
+    help="Filtra contratos perpetuos con baja liquidez en OKX.",
 )
 
 watchlist_default = (
-    "BTC/USDT\nETH/USDT\nSOL/USDT\nXRP/USDT\nADA/USDT\nDOGE/USDT\nAVAX/USDT\nLINK/USDT\nPEPE/USDT\nRENDER/USDT"
+    "BTC/USDT:USDT\nETH/USDT:USDT\nSOL/USDT:USDT\nXRP/USDT:USDT\nDOGE/USDT:USDT"
 )
 simbolos_personalizados = None
 moneda_buscada = None
 
 if modo_escaneo == "Buscar Moneda Específica (Seguimiento)":
-  st.sidebar.subheader("🔎 Buscador en Vivo")
+  st.sidebar.subheader("🔎 Buscador en Futuros OKX")
   input_moneda = st.sidebar.text_input(
-      "Ticker de la moneda (ej. SOL, ASTER, ETH):",
+      "Ticker (ej. SOL, BTC, ETH):",
       value="SOL",
-      help=(
-          "Escribe el símbolo de la cripto. Siempre se analizará junto con"
-          " BTC/USDT."
-      ),
   )
   if input_moneda.strip():
     ticker_limpio = input_moneda.strip().upper()
-    if "/" not in ticker_limpio:
-      ticker_limpio = f"{ticker_limpio}/USDT"
+    if ":" not in ticker_limpio:
+      if "/" not in ticker_limpio:
+        ticker_limpio = f"{ticker_limpio}/USDT:USDT"
+      else:
+        ticker_limpio = f"{ticker_limpio}:USDT"
     moneda_buscada = ticker_limpio
     simbolos_personalizados = [moneda_buscada]
 
 elif modo_escaneo == "Mi Watchlist Personalizada":
   user_watchlist = st.sidebar.text_area(
-      "Tu lista de seguimiento (PAR/USDT):",
+      "Tu lista de futuros (PAR/USDT:USDT):",
       watchlist_default,
-      height=150,
+      height=130,
   )
   simbolos_personalizados = [
       s.strip().upper() for s in user_watchlist.split("\n") if s.strip()
   ]
 
+st.sidebar.markdown("---")
+with st.sidebar.expander("🔔 Alertas a Telegram (Opcional)"):
+  activar_telegram = st.checkbox("Activar envío de señales")
+  tg_token = st.text_input("Bot Token de Telegram:", type="password")
+  tg_chat_id = st.text_input("Tu Chat ID:")
+  umbral_alerta = st.slider("Enviar si Confluencia >=", 60, 95, 78)
 
-# --- FUNCIONES DE CÁLCULO ---
+
+# --- FUNCIONES DE CÁLCULO Y ALERTAS ---
+def enviar_alerta_telegram(token, chat_id, mensaje):
+  if not token or not chat_id:
+    return
+  url = f"https://api.telegram.org/bot{token}/sendMessage"
+  payload = {"chat_id": chat_id, "text": mensaje, "parse_mode": "Markdown"}
+  try:
+    requests.post(url, json=payload, timeout=5)
+  except Exception:
+    pass
+
+
 def calcular_macd_hist(df):
   close = df["close"]
   exp1 = close.ewm(span=12, adjust=False).mean()
@@ -172,6 +193,7 @@ def calcular_macd_hist(df):
 
 
 def calcular_perfil_volumen_ponderado(df):
+  """Calcula el Punto de Control (POC) ponderado por precio típico y volumen"""
   try:
     if len(df) == 0:
       return 0
@@ -194,7 +216,7 @@ def calcular_perfil_volumen_ponderado(df):
     return df["close"].iloc[-1]
 
 
-async def analizar_simbolo(exchange, symbol, semaphore):
+async def analizar_simbolo(exchange, symbol, semaphore, direccion, vol_24h=0):
   async with semaphore:
     try:
       v_15m, v_1h, v_4h = await asyncio.gather(
@@ -279,8 +301,7 @@ async def analizar_simbolo(exchange, symbol, semaphore):
 
       poc = calcular_perfil_volumen_ponderado(df_1h)
 
-      # --- GESTIÓN DE RIESGO DINÁMICA (LONG vs SHORT) ---
-      if "Short" in direccion_trading:
+      if "Short" in direccion:
         stop_loss = round(max(upper * 1.01, poc * 1.02, precio_actual * 1.03), 4)
         riesgo = stop_loss - precio_actual
         if riesgo <= 0:
@@ -300,8 +321,9 @@ async def analizar_simbolo(exchange, symbol, semaphore):
       vol_venta = df_1h[df_1h["close"] < df_1h["open"]]["volume"].sum()
 
       return {
-          "Cripto": symbol,
+          "Cripto": symbol.split(":")[0],
           "Precio ($)": round(precio_actual, 4),
+          "Volumen 24h ($)": round(vol_24h, 0),
           "Cambio_1h": round(cambio_1h, 2),
           "Tendencia (3T)": tendencia_txt,
           "POC (Vol)": poc,
@@ -309,9 +331,9 @@ async def analizar_simbolo(exchange, symbol, semaphore):
           "Prob. Subir": f"{prob_subir}%",
           "Stop Loss ($)": stop_loss,
           "Take Profit ($)": take_profit,
-          "MACD 15m": "🟢" if macd_15m > 0 else "🔴",
-          "MACD 1h": "🟢" if macd_1h > 0 else "🔴",
-          "MACD 4h": "🟢" if macd_4h > 0 else "🔴",
+          "MACD 15m": "🟢 Alcista" if macd_15m > 0 else "🔴 Bajista",
+          "MACD 1h": "🟢 Alcista" if macd_1h > 0 else "🔴 Bajista",
+          "MACD 4h": "🟢 Alcista" if macd_4h > 0 else "🔴 Bajista",
           "RSI (1h)": round(rsi_actual, 1),
           "vol_compra": vol_compra,
           "vol_venta": vol_venta,
@@ -321,42 +343,60 @@ async def analizar_simbolo(exchange, symbol, semaphore):
       return None
 
 
-async def ejecutar_escaneo(simbolos_custom=None):
-  exchange_mexc = ccxt.mexc(
-      {"enableRateLimit": True, "options": {"defaultType": "spot"}}
+async def _ejecutar_escaneo_async(simbolos_custom, direccion, vol_min):
+  # CONEXIÓN DIRECTA A FUTUROS (SWAP) EN OKX
+  exchange_okx = ccxt.okx(
+      {"enableRateLimit": True, "options": {"defaultType": "swap"}}
   )
   try:
-    await exchange_mexc.load_markets()
+    await exchange_okx.load_markets()
+    tickers = await exchange_okx.fetch_tickers()
 
     if simbolos_custom:
-      simbolos = [
-          s
-          for s in simbolos_custom
-          if s in exchange_mexc.markets and exchange_mexc.markets[s]["active"]
-      ]
-      if "BTC/USDT" in exchange_mexc.markets and "BTC/USDT" not in simbolos:
-        simbolos.insert(0, "BTC/USDT")
+      simbolos_a_escanear = []
+      for s in simbolos_custom:
+        if s in exchange_okx.markets and exchange_okx.markets[s]["active"]:
+          v24 = tickers.get(s, {}).get("quoteVolume", 0) or 0
+          if "BTC/USDT" in s or v24 >= vol_min:
+            simbolos_a_escanear.append((s, v24))
+
+      btc_key = next(
+          (s for s in exchange_okx.markets if "BTC/USDT" in s), "BTC/USDT:USDT"
+      )
+      if not any(item[0] == btc_key for item in simbolos_a_escanear):
+        btc_vol = tickers.get(btc_key, {}).get("quoteVolume", 0) or 0
+        simbolos_a_escanear.insert(0, (btc_key, btc_vol))
     else:
-      tickers = await exchange_mexc.fetch_tickers()
       pares_volumen = []
-      for s, m in exchange_mexc.markets.items():
-        if s.endswith("/USDT") and m["active"] and s in tickers:
+      for s, m in exchange_okx.markets.items():
+        if m["active"] and s in tickers:
           volumen_24h = tickers[s].get("quoteVolume", 0) or 0
-          pares_volumen.append((s, volumen_24h))
+          if "BTC/USDT" in s or volumen_24h >= vol_min:
+            pares_volumen.append((s, volumen_24h))
 
       pares_volumen.sort(key=lambda x: x[1], reverse=True)
-      simbolos = [item[0] for item in pares_volumen[:100]]
-      if "BTC/USDT" in simbolos:
-        simbolos.remove("BTC/USDT")
-      simbolos.insert(0, "BTC/USDT")
+      simbolos_a_escanear = pares_volumen[:100]
+
+      btc_key = next(
+          (s for s, _ in simbolos_a_escanear if "BTC/USDT" in s),
+          "BTC/USDT:USDT",
+      )
+      simbolos_a_escanear = [
+          item for item in simbolos_a_escanear if "BTC/USDT" not in item[0]
+      ]
+      btc_vol = tickers.get(btc_key, {}).get("quoteVolume", 0) or 0
+      simbolos_a_escanear.insert(0, (btc_key, btc_vol))
 
     semaphore = asyncio.Semaphore(8)
-    tareas = [analizar_simbolo(exchange_mexc, s, semaphore) for s in simbolos]
+    tareas = [
+        analizar_simbolo(exchange_okx, s, semaphore, direccion, v24)
+        for s, v24 in simbolos_a_escanear
+    ]
     resultados = await asyncio.gather(*tareas)
     resultados_validos = [r for r in resultados if r is not None]
 
     def ordenar_btc_primero(x):
-      if x["Cripto"] == "BTC/USDT":
+      if "BTC" in x["Cripto"]:
         return (-1, -x["Prob_Subir_Num"])
       return (0, -x["Prob_Subir_Num"])
 
@@ -364,55 +404,92 @@ async def ejecutar_escaneo(simbolos_custom=None):
     return resultados_validos
 
   finally:
-    await exchange_mexc.close()
+    await exchange_okx.close()
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def obtener_datos_cacheados(simbolos_tuple, direccion, vol_min):
+  simbolos_list = list(simbolos_tuple) if simbolos_tuple else None
+  try:
+    loop = asyncio.get_event_loop()
+  except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+  return loop.run_until_complete(
+      _ejecutar_escaneo_async(simbolos_list, direccion, vol_min)
+  )
 
 
 # --- BANNER SUPERIOR ---
 st.markdown(
     f"""
     <div class="top-banner">
-        <h2>📊 TERMINAL CRIPTO PRO — MODO PLAN DE TRADING ({direccion_trading.upper()})</h2>
-        <span style="font-size: 0.85rem; opacity: 0.9;">Exchange: MEXC Spot | Ref: BTC/USDT</span>
+        <h2>📊 TERMINAL FUTUROS PRO (OKX) — MODO PLAN ({direccion_trading.upper()})</h2>
+        <span style="font-size: 0.85rem; opacity: 0.9;">Exchange: OKX Futures | Ref: BTC | Alta Liquidez</span>
     </div>
 """,
     unsafe_allow_html=True,
 )
 
 # --- BOTÓN DE EJECUCIÓN ---
+col_btn1, col_btn2 = st.sidebar.columns([3, 1])
 texto_boton = (
-    f"🔄 Actualizar Datos de {moneda_buscada}"
+    f"🔄 Escanear {moneda_buscada}"
     if modo_escaneo == "Buscar Moneda Específica (Seguimiento)"
     and moneda_buscada
-    else "🔍 Ejecutar Escáner de Mercado"
+    else "🔍 Escanear Mercado OKX"
 )
 
-if st.sidebar.button(texto_boton, type="primary", use_container_width=True):
+btn_escanear = col_btn1.button(
+    texto_boton, type="primary", use_container_width=True
+)
+if col_btn2.button("🧹", help="Limpiar caché de futuros"):
+  st.cache_data.clear()
+  st.toast("Caché limpiada.")
+
+if btn_escanear:
   if (
       modo_escaneo == "Buscar Moneda Específica (Seguimiento)"
       and not moneda_buscada
   ):
-    st.warning("Por favor, escribe el nombre de una moneda en el buscador.")
+    st.warning("Escribe el nombre de un contrato en el buscador.")
   else:
-    with st.spinner("Sincronizando datos con MEXC..."):
-      try:
-        loop = asyncio.get_event_loop()
-      except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-      destacados = loop.run_until_complete(
-          ejecutar_escaneo(simbolos_personalizados)
+    with st.spinner("Sincronizando contratos perpetuos con OKX Futuros..."):
+      simb_tupla = (
+          tuple(simbolos_personalizados) if simbolos_personalizados else None
+      )
+      destacados = obtener_datos_cacheados(
+          simb_tupla, direccion_trading, vol_minimo
       )
 
       if destacados:
-        if modo_escaneo == "Buscar Moneda Específica (Seguimiento)":
-          encontrada = any(r["Cripto"] == moneda_buscada for r in destacados)
-          if not encontrada:
-            st.error(f"❌ El par **{moneda_buscada}** no está activo en MEXC.")
+        if activar_telegram and tg_token and tg_chat_id:
+          alertas_enviadas = 0
+          for r in destacados:
+            if "BTC" not in r["Cripto"] and r["Prob_Subir_Num"] >= umbral_alerta:
+              msg = (
+                  f"🚨 *ALERTA FUTUROS (OKX)*\n\n"
+                  f"🪙 *Activo:* {r['Cripto']}\n"
+                  f"🎯 *Plan:* {direccion_trading}\n"
+                  f"💰 *Precio:* ${r['Precio ($)']}\n"
+                  f"🎯 *POC:* ${r['POC (Vol)']}\n"
+                  f"⚡ *Confluencia:* {r['Prob. Subir']}\n"
+                  f"🛡️ *Stop Loss:* ${r['Stop Loss ($)']}\n"
+                  f"🚀 *Take Profit:* ${r['Take Profit ($)']}"
+              )
+              enviar_alerta_telegram(tg_token, tg_chat_id, msg)
+              alertas_enviadas += 1
+          if alertas_enviadas > 0:
+            st.sidebar.success(
+                f"📩 {alertas_enviadas} alerta(s) enviada(s) a Telegram."
+            )
+
         st.session_state["destacados"] = destacados
         st.session_state["ultima_buscada"] = moneda_buscada
       else:
-        st.warning("No se obtuvieron datos del exchange.")
+        st.warning(
+            "No se encontraron contratos que cumplan los filtros actuales."
+        )
 
 # --- RENDERIZADO DEL DASHBOARD ---
 if "destacados" in st.session_state and st.session_state["destacados"]:
@@ -421,16 +498,17 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
   index_default = 0
   if (
       st.session_state.get("ultima_buscada")
-      and st.session_state["ultima_buscada"] in simbolos_disponibles
+      and st.session_state["ultima_buscada"].split(":")[0]
+      in simbolos_disponibles
   ):
-    index_default = simbolos_disponibles.index(
-        st.session_state["ultima_buscada"]
-    )
+    index_default = [
+        s.split("/")[0] for s in simbolos_disponibles
+    ].index(st.session_state["ultima_buscada"].split("/")[0])
 
   col_sel, col_info = st.columns([2, 3])
   with col_sel:
     cripto_seleccionada = st.selectbox(
-        "📌 Activo en Inspección Detallada:",
+        "📌 Contrato en Inspección Detallada:",
         simbolos_disponibles,
         index=index_default,
     )
@@ -441,11 +519,10 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
       if r["Cripto"] == cripto_seleccionada
   )
   btc_data = next(
-      (r for r in st.session_state["destacados"] if r["Cripto"] == "BTC/USDT"),
-      None,
+      (r for r in st.session_state["destacados"] if "BTC" in r["Cripto"]), None
   )
 
-  # 1. TARJETAS KPI SUPERIORES (Adaptadas a Long o Short)
+  # 1. TARJETAS KPI SUPERIORES
   k1, k2, k3, k4 = st.columns(4)
 
   color_precio = "card-red" if "Short" in direccion_trading else "card-green"
@@ -454,7 +531,7 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
     st.markdown(
         f"""
         <div class="kpi-card {color_precio}">
-            <div class="kpi-title">💰 PRECIO ACTUAL ({crypto_data['Cripto']})</div>
+            <div class="kpi-title">💰 PRECIO FUTURO ({crypto_data['Cripto']})</div>
             <div class="kpi-value">${crypto_data['Precio ($)']}</div>
             <div class="kpi-sub">Variación 1h: {signo}{crypto_data['Cambio_1h']}%</div>
         </div>
@@ -468,7 +545,7 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
         <div class="kpi-card card-blue">
             <div class="kpi-title">🎯 PUNTO DE CONTROL (POC)</div>
             <div class="kpi-value">${crypto_data['POC (Vol)']}</div>
-            <div class="kpi-sub">Zona de mayor liquidez (1h)</div>
+            <div class="kpi-sub">Vol 24h: ${crypto_data['Volumen 24h ($)']:,.0f}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -478,9 +555,13 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
     st.markdown(
         f"""
         <div class="kpi-card card-orange">
-            <div class="kpi-title">📈 TENDENCIA MULTI-TEMPORAL</div>
-            <div class="kpi-value" style="font-size: 1.45rem; padding-top:4px;">{crypto_data['Tendencia (3T)']}</div>
-            <div class="kpi-sub">MACD: 15m {crypto_data['MACD 15m']} | 1h {crypto_data['MACD 1h']} | 4h {crypto_data['MACD 4h']}</div>
+            <div class="kpi-title">📈 MACD MULTI-TEMPORAL</div>
+            <div class="kpi-value" style="font-size: 1.15rem; padding-top:6px;">
+                15m: {crypto_data['MACD 15m']}<br>
+                1h: {crypto_data['MACD 1h']}<br>
+                4h: {crypto_data['MACD 4h']}
+            </div>
+            <div class="kpi-sub">Tendencia: {crypto_data['Tendencia (3T)']}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -490,25 +571,27 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
     st.markdown(
         f"""
         <div class="kpi-card card-pink">
-            <div class="kpi-title">⚡ PLAN SELECCIONADO</div>
-            <div class="kpi-value" style="font-size: 1.35rem; padding-top:6px;">{direccion_trading}</div>
-            <div class="kpi-sub">RSI (1h): {crypto_data['RSI (1h)']} pts</div>
+            <div class="kpi-title">⚡ ÍNDICE DE CONFLUENCIA</div>
+            <div class="kpi-value">{crypto_data['Prob. Subir']}</div>
+            <div class="kpi-sub">RSI (1h): {crypto_data['RSI (1h)']} pts | {direccion_trading}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-  # 2. FILA SECUNDARIA DE GESTIÓN DE RIESGO (Variables separadas para evitar errores de sintaxis)
+  # 2. FILA SECUNDARIA DE GESTIÓN DE RIESGO
   st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
 
-  if "Short" in direccion_trading:
-    label_sl = "🛡️ Stop Loss (Por encima)"
-  else:
-    label_sl = "🛡️ Stop Loss (Por debajo)"
+  label_sl = (
+      "🛡️ Stop Loss (Por encima)"
+      if "Short" in direccion_trading
+      else "🛡️ Stop Loss (Por debajo)"
+  )
+  color_sl = "#ff6b6b" if "Long" in direccion_trading else "#ffa726"
+  color_tp = "#51cf66" if "Long" in direccion_trading else "#ff6b6b"
 
   s1, s2, s3, s4 = st.columns(4)
   with s1:
-    color_sl = "#ff6b6b" if "Long" in direccion_trading else "#ffa726"
     st.markdown(
         f"<div class='mini-stat'><div"
         f" class='mini-stat-label'>{label_sl}</div><div class='mini-stat-val'"
@@ -516,7 +599,6 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
         unsafe_allow_html=True,
     )
   with s2:
-    color_tp = "#51cf66" if "Long" in direccion_trading else "#ff6b6b"
     st.markdown(
         f"<div class='mini-stat'><div class='mini-stat-label'>🚀 Take Profit"
         f" (Objetivo 2:1)</div><div class='mini-stat-val'"
@@ -535,8 +617,8 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
   with s4:
     total_activos = len(st.session_state["destacados"])
     st.markdown(
-        f"<div class='mini-stat'><div class='mini-stat-label'>📡 Activos"
-        f" Escaneados</div><div"
+        f"<div class='mini-stat'><div class='mini-stat-label'>📡 Contratos"
+        f" Activos</div><div"
         f" class='mini-stat-val'>{total_activos}</div></div>",
         unsafe_allow_html=True,
     )
@@ -546,7 +628,7 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
   # 3. PESTAÑAS DE NAVEGACIÓN
   tab1, tab2 = st.tabs([
       "📈 VISTA GENERAL Y GRÁFICOS",
-      "📋 TABLA COMPLETA DE MERCADO",
+      "📋 TABLA COMPLETA DE FUTUROS",
   ])
 
   with tab1:
@@ -620,11 +702,33 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
     )
 
     poc_val = crypto_data["POC (Vol)"]
+    sl_val = crypto_data["Stop Loss ($)"]
+    tp_val = crypto_data["Take Profit ($)"]
+
     fig.add_hline(
         y=poc_val,
         line_dash="dash",
         line_color="#ffa726",
         annotation_text=f"POC: ${poc_val}",
+        annotation_position="bottom right",
+        row=1,
+        col=1,
+    )
+    fig.add_hline(
+        y=sl_val,
+        line_dash="dot",
+        line_color="#ef5350",
+        annotation_text=f"STOP LOSS: ${sl_val}",
+        annotation_position="top left",
+        row=1,
+        col=1,
+    )
+    fig.add_hline(
+        y=tp_val,
+        line_dash="dot",
+        line_color="#66bb6a",
+        annotation_text=f"TAKE PROFIT: ${tp_val}",
+        annotation_position="top left",
         row=1,
         col=1,
     )
@@ -667,7 +771,7 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
         template="plotly_dark",
         paper_bgcolor="#0b0e14",
         plot_bgcolor="#151922",
-        height=550,
+        height=560,
         xaxis_rangeslider_visible=False,
         margin=dict(l=15, r=15, t=30, b=15),
         legend=dict(
@@ -728,7 +832,7 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
           ]
       )
       fig_donut2.update_layout(
-          title_text="Top Activos por Fuerza de Confluencia",
+          title_text="Top Contratos por Fuerza de Confluencia",
           template="plotly_dark",
           paper_bgcolor="#151922",
           height=320,
@@ -738,7 +842,7 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
       st.plotly_chart(fig_donut2, use_container_width=True)
 
   with tab2:
-    st.markdown("### 📋 Resumen Detallado de Activos Escaneados (BTC Primero)")
+    st.markdown("### 📋 Resumen de Contratos de Futuros OKX (BTC Primero)")
     columnas_excluir = [
         "raw_df",
         "Prob_Subir_Num",
@@ -763,6 +867,9 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
                 format="%s",
                 min_value=0,
                 max_value=100,
-            )
+            ),
+            "Volumen 24h ($)": st.column_config.NumberColumn(
+                "Volumen 24h ($)", format="$%d"
+            ),
         },
     )
