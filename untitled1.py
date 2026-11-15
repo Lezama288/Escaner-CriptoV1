@@ -13,14 +13,12 @@ st.set_page_config(
     layout="wide",
 )
 
-# --- CSS PERSONALIZADO (ESTILO DASHBOARD PROFESIONAL CON TARJETAS KPI) ---
+# --- CSS PERSONALIZADO (ESTILO DASHBOARD PROFESIONAL) ---
 st.markdown(
     """
     <style>
-    /* Fondo principal limpio y oscuro */
     .main { background-color: #0b0e14; }
     
-    /* Encabezado tipo barra superior */
     .top-banner {
         background: linear-gradient(90deg, #1d5c63 0%, #2a7b84 100%);
         padding: 15px 25px;
@@ -39,7 +37,6 @@ st.markdown(
         letter-spacing: 0.5px;
     }
     
-    /* Tarjetas KPI de colores */
     .kpi-card {
         padding: 18px 20px;
         border-radius: 8px;
@@ -51,6 +48,7 @@ st.markdown(
     .kpi-card:hover { transform: translateY(-3px); }
     
     .card-green { background: linear-gradient(135deg, #2e7d32 0%, #4caf50 100%); }
+    .card-red   { background: linear-gradient(135deg, #c62828 0%, #ef5350 100%); }
     .card-blue  { background: linear-gradient(135deg, #1565c0 0%, #29b6f6 100%); }
     .card-orange{ background: linear-gradient(135deg, #ef6c00 0%, #ffa726 100%); }
     .card-pink  { background: linear-gradient(135deg, #880e4f 0%, #d81b60 100%); }
@@ -74,7 +72,6 @@ st.markdown(
         margin-top: 4px;
     }
 
-    /* Métricas secundarias minimalistas */
     .mini-stat {
         background-color: #151922;
         border: 1px solid #21262d;
@@ -85,7 +82,6 @@ st.markdown(
     .mini-stat-label { color: #8b949e; font-size: 0.75rem; text-transform: uppercase; }
     .mini-stat-val { color: #f0f6fc; font-size: 1.25rem; font-weight: 700; }
 
-    /* Estilo de pestañas */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
         background-color: #151922;
@@ -107,18 +103,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --- BANNER SUPERIOR ---
-st.markdown(
-    """
-    <div class="top-banner">
-        <h2>📊 TERMINAL CRIPTO PRO — ESTADÍSTICAS Y FLUJO DE LIQUIDEZ (15m • 1h • 4h)</h2>
-        <span style="font-size: 0.85rem; opacity: 0.9;">Exchange: MEXC Spot | Ref: BTC/USDT</span>
-    </div>
-""",
-    unsafe_allow_html=True,
-)
-
-# --- BARRA LATERAL (CONFIGURACIÓN, BUSCADOR & WATCHLIST) ---
+# --- BARRA LATERAL (CONFIGURACIÓN, BUSCADOR & DIRECCIÓN) ---
 st.sidebar.header("⚙️ Panel de Control")
 modo_escaneo = st.sidebar.radio(
     "Modo de Operación:",
@@ -127,6 +112,18 @@ modo_escaneo = st.sidebar.radio(
         "Top Activos por Volumen (Alta Liquidez)",
         "Mi Watchlist Personalizada",
     ],
+)
+
+# Selector de Dirección de Operación (Long vs Short)
+st.sidebar.markdown("---")
+st.sidebar.header("🎯 Plan de Trading")
+direccion_trading = st.sidebar.selectbox(
+    "Dirección de la Operación:",
+    ["📈 Alcista (Long)", "📉 Bajista (Short)"],
+    help=(
+        "Selecciona si planeas buscar oportunidades de compra (Long) o de venta"
+        " en corto (Short)."
+    ),
 )
 
 watchlist_default = (
@@ -175,7 +172,6 @@ def calcular_macd_hist(df):
 
 
 def calcular_perfil_volumen_ponderado(df):
-  """Calcula el Punto de Control (POC) ponderado por precio típico y volumen"""
   try:
     if len(df) == 0:
       return 0
@@ -224,7 +220,6 @@ async def analizar_simbolo(exchange, symbol, semaphore):
       precio_anterior = df_1h["close"].iloc[-2]
       cambio_1h = ((precio_actual - precio_anterior) / precio_anterior) * 100
 
-      # Indicadores 1h
       close_1h = df_1h["close"]
       delta = close_1h.diff()
       gain = delta.where(delta > 0, 0).rolling(14).mean()
@@ -239,19 +234,16 @@ async def analizar_simbolo(exchange, symbol, semaphore):
       lower = (sma_20 - (2 * std_20)).iloc[-1]
       sma = sma_20.iloc[-1]
 
-      # MACD en las 3 Temporalidades
       macd_15m = calcular_macd_hist(df_15m)
       macd_1h = calcular_macd_hist(df_1h)
       macd_4h = calcular_macd_hist(df_4h)
 
-      # Tendencia de Precios en las 3 Temporalidades
       alcista_15m = (
           precio_actual > df_15m["close"].rolling(20).mean().iloc[-1]
       )
       alcista_1h = precio_actual > sma
       alcista_4h = precio_actual > df_4h["close"].rolling(20).mean().iloc[-1]
 
-      # Puntuación estructurada
       puntos_alcistas = 50
       puntos_alcistas += 8 if alcista_4h else -8
       puntos_alcistas += 6 if alcista_1h else -6
@@ -285,15 +277,28 @@ async def analizar_simbolo(exchange, symbol, semaphore):
       else:
         tendencia_txt = "Bajista Fuerte"
 
-      # Gestión de Riesgo
       poc = calcular_perfil_volumen_ponderado(df_1h)
-      stop_loss = round(min(lower * 0.99, poc * 0.98, precio_actual * 0.97), 4)
-      riesgo = precio_actual - stop_loss
-      if riesgo <= 0:
-        stop_loss = round(precio_actual * 0.97, 4)
-        riesgo = precio_actual - stop_loss
 
-      take_profit = round(precio_actual + (riesgo * 2.0), 4)
+      # --- GESTIÓN DE RIESGO DINÁMICA (LONG vs SHORT) ---
+      if "Short" in direccion_trading:
+        # Para Short: Stop Loss arriba (por encima de la resistencia/POC o banda superior), Take Profit abajo
+        stop_loss = round(max(upper * 1.01, poc * 1.02, precio_actual * 1.03), 4)
+        riesgo = stop_loss - precio_actual
+        if riesgo <= 0:
+          stop_loss = round(precio_actual * 1.03, 4)
+          riesgo = stop_loss - precio_actual
+        take_profit = round(precio_actual - (riesgo * 2.0), 4)
+        take_profit = max(
+            0.0001, take_profit
+        )  # Evitar precios negativos en tokens pequeños
+      else:
+        # Para Long: Stop Loss abajo, Take Profit arriba
+        stop_loss = round(min(lower * 0.99, poc * 0.98, precio_actual * 0.97), 4)
+        riesgo = precio_actual - stop_loss
+        if riesgo <= 0:
+          stop_loss = round(precio_actual * 0.97, 4)
+          riesgo = precio_actual - stop_loss
+        take_profit = round(precio_actual + (riesgo * 2.0), 4)
 
       vol_compra = df_1h[df_1h["close"] >= df_1h["open"]]["volume"].sum()
       vol_venta = df_1h[df_1h["close"] < df_1h["open"]]["volume"].sum()
@@ -366,6 +371,17 @@ async def ejecutar_escaneo(simbolos_custom=None):
     await exchange_mexc.close()
 
 
+# --- BANNER SUPERIOR ---
+st.markdown(
+    f"""
+    <div class="top-banner">
+        <h2>📊 TERMINAL CRIPTO PRO — MODO PLAN DE TRADING ({direccion_trading.upper()})</h2>
+        <span style="font-size: 0.85rem; opacity: 0.9;">Exchange: MEXC Spot | Ref: BTC/USDT</span>
+    </div>
+""",
+    unsafe_allow_html=True,
+)
+
 # --- BOTÓN DE EJECUCIÓN ---
 texto_boton = (
     f"🔄 Actualizar Datos de {moneda_buscada}"
@@ -433,14 +449,15 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
       None,
   )
 
-  # 1. TARJETAS KPI SUPERIORES DE COLORES
+  # 1. TARJETAS KPI SUPERIORES (Adaptadas a Long o Short)
   k1, k2, k3, k4 = st.columns(4)
 
+  color_precio = "card-red" if "Short" in direccion_trading else "card-green"
   with k1:
     signo = "+" if crypto_data["Cambio_1h"] >= 0 else ""
     st.markdown(
         f"""
-        <div class="kpi-card card-green">
+        <div class="kpi-card {color_precio}">
             <div class="kpi-title">💰 PRECIO ACTUAL ({crypto_data['Cripto']})</div>
             <div class="kpi-value">${crypto_data['Precio ($)']}</div>
             <div class="kpi-sub">Variación 1h: {signo}{crypto_data['Cambio_1h']}%</div>
@@ -477,29 +494,32 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
     st.markdown(
         f"""
         <div class="kpi-card card-pink">
-            <div class="kpi-title">⚡ ÍNDICE DE CONFLUENCIA</div>
-            <div class="kpi-value">{crypto_data['Prob. Subir']}</div>
+            <div class="kpi-title">⚡ PLAN SELECCIONADO</div>
+            <div class="kpi-value" style="font-size: 1.35rem; padding-top:6px;">{direccion_trading}</div>
             <div class="kpi-sub">RSI (1h): {crypto_data['RSI (1h)']} pts</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-  # 2. FILA SECUNDARIA DE DATOS
+  # 2. FILA SECUNDARIA DE GESTIÓN DE RIESGO
   st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
   s1, s2, s3, s4 = st.columns(4)
   with s1:
+    color_sl = "#ff6b6b" if "Long" in direccion_trading else "#ffa726"
     st.markdown(
         f"<div class='mini-stat'><div class='mini-stat-label'>🛡️ Stop Loss"
-        f" Sugerido</div><div class='mini-stat-val'"
-        f" style='color:#ff6b6b;'>${crypto_data['Stop Loss ($)']}</div></div>",
+        f" ({'Por encima' if 'Short' in direccion_trading else 'Por"
+        f" debajo'})</div><div class='mini-stat-val'"
+        f" style='color:{color_sl};'>${crypto_data['Stop Loss ($)']}</div></div>",
         unsafe_allow_html=True,
     )
   with s2:
+    color_tp = "#51cf66" if "Long" in direccion_trading else "#ff6b6b"
     st.markdown(
         f"<div class='mini-stat'><div class='mini-stat-label'>🚀 Take Profit"
-        f" (2:1)</div><div class='mini-stat-val'"
-        f" style='color:#51cf66;'>${crypto_data['Take Profit ($)']}</div></div>",
+        f" (Objetivo 2:1)</div><div class='mini-stat-val'"
+        f" style='color:{color_tp};'>${crypto_data['Take Profit ($)']}</div></div>",
         unsafe_allow_html=True,
     )
   with s3:
