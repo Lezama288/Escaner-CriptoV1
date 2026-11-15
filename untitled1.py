@@ -125,8 +125,8 @@ direccion_trading = st.sidebar.selectbox(
 vol_minimo = st.sidebar.number_input(
     "Volumen Mínimo 24h (USDT):",
     min_value=0,
-    value=100000,
-    step=50000,
+    value=50000,
+    step=10000,
     help="Filtra contratos perpetuos con baja liquidez en OKX.",
 )
 
@@ -356,21 +356,36 @@ async def _ejecutar_escaneo_async(simbolos_custom, direccion, vol_min):
       simbolos_a_escanear = []
       for s in simbolos_custom:
         if s in exchange_okx.markets and exchange_okx.markets[s]["active"]:
-          v24 = tickers.get(s, {}).get("quoteVolume", 0) or 0
-          if "BTC/USDT" in s or v24 >= vol_min:
+          t_data = tickers.get(s, {})
+          v24 = (
+              t_data.get("quoteVolume", 0)
+              or t_data.get("baseVolume", 0) * t_data.get("last", 1)
+              or 0
+          )
+          if "BTC/USDT" in s or v24 >= vol_min or v24 == 0:
             simbolos_a_escanear.append((s, v24))
 
       btc_key = next(
           (s for s in exchange_okx.markets if "BTC/USDT" in s), "BTC/USDT:USDT"
       )
       if not any(item[0] == btc_key for item in simbolos_a_escanear):
-        btc_vol = tickers.get(btc_key, {}).get("quoteVolume", 0) or 0
+        t_btc = tickers.get(btc_key, {})
+        btc_vol = (
+            t_btc.get("quoteVolume", 0)
+            or t_btc.get("baseVolume", 0) * t_btc.get("last", 1)
+            or 0
+        )
         simbolos_a_escanear.insert(0, (btc_key, btc_vol))
     else:
       pares_volumen = []
       for s, m in exchange_okx.markets.items():
-        if m["active"] and s in tickers:
-          volumen_24h = tickers[s].get("quoteVolume", 0) or 0
+        if m["active"] and s in tickers and "/USDT" in s:
+          t_data = tickers[s]
+          volumen_24h = (
+              t_data.get("quoteVolume", 0)
+              or t_data.get("baseVolume", 0) * t_data.get("last", 1)
+              or 0
+          )
           if "BTC/USDT" in s or volumen_24h >= vol_min:
             pares_volumen.append((s, volumen_24h))
 
@@ -384,7 +399,12 @@ async def _ejecutar_escaneo_async(simbolos_custom, direccion, vol_min):
       simbolos_a_escanear = [
           item for item in simbolos_a_escanear if "BTC/USDT" not in item[0]
       ]
-      btc_vol = tickers.get(btc_key, {}).get("quoteVolume", 0) or 0
+      t_btc = tickers.get(btc_key, {})
+      btc_vol = (
+          t_btc.get("quoteVolume", 0)
+          or t_btc.get("baseVolume", 0) * t_btc.get("last", 1)
+          or 0
+      )
       simbolos_a_escanear.insert(0, (btc_key, btc_vol))
 
     semaphore = asyncio.Semaphore(8)
