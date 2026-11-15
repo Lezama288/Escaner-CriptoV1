@@ -822,15 +822,3 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
               )
           ]
       )
-      fig_donut1.update_layout(
-          title_text=f"Presión Compra vs Venta ({crypto_data['Cripto']})",
-          template="plotly_dark",
-          paper_bgcolor="#151922",
-          height=320,
-          margin=dict(l=20, r=20, t=45, b=20),
-          showlegend=False,
-      )
-      st.plotly_chart(fig_donut1, use_container_width=True)
-
-    with c_don2:
-      top_5 =
