@@ -281,18 +281,14 @@ async def analizar_simbolo(exchange, symbol, semaphore):
 
       # --- GESTIÓN DE RIESGO DINÁMICA (LONG vs SHORT) ---
       if "Short" in direccion_trading:
-        # Para Short: Stop Loss arriba (por encima de la resistencia/POC o banda superior), Take Profit abajo
         stop_loss = round(max(upper * 1.01, poc * 1.02, precio_actual * 1.03), 4)
         riesgo = stop_loss - precio_actual
         if riesgo <= 0:
           stop_loss = round(precio_actual * 1.03, 4)
           riesgo = stop_loss - precio_actual
         take_profit = round(precio_actual - (riesgo * 2.0), 4)
-        take_profit = max(
-            0.0001, take_profit
-        )  # Evitar precios negativos en tokens pequeños
+        take_profit = max(0.0001, take_profit)
       else:
-        # Para Long: Stop Loss abajo, Take Profit arriba
         stop_loss = round(min(lower * 0.99, poc * 0.98, precio_actual * 0.97), 4)
         riesgo = precio_actual - stop_loss
         if riesgo <= 0:
@@ -502,15 +498,20 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
         unsafe_allow_html=True,
     )
 
-  # 2. FILA SECUNDARIA DE GESTIÓN DE RIESGO
+  # 2. FILA SECUNDARIA DE GESTIÓN DE RIESGO (Variables separadas para evitar errores de sintaxis)
   st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+
+  if "Short" in direccion_trading:
+    label_sl = "🛡️ Stop Loss (Por encima)"
+  else:
+    label_sl = "🛡️ Stop Loss (Por debajo)"
+
   s1, s2, s3, s4 = st.columns(4)
   with s1:
     color_sl = "#ff6b6b" if "Long" in direccion_trading else "#ffa726"
     st.markdown(
-        f"<div class='mini-stat'><div class='mini-stat-label'>🛡️ Stop Loss"
-        f" ({'Por encima' if 'Short' in direccion_trading else 'Por"
-        f" debajo'})</div><div class='mini-stat-val'"
+        f"<div class='mini-stat'><div"
+        f" class='mini-stat-label'>{label_sl}</div><div class='mini-stat-val'"
         f" style='color:{color_sl};'>${crypto_data['Stop Loss ($)']}</div></div>",
         unsafe_allow_html=True,
     )
