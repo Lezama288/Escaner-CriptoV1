@@ -190,6 +190,7 @@ def calcular_macd_hist(df):
 
 
 def calcular_perfil_volumen_ponderado(df):
+  """Calcula el Punto de Control (POC) ponderado por precio típico y volumen"""
   try:
     if len(df) == 0:
       return 0
@@ -295,6 +296,7 @@ async def analizar_simbolo(exchange, symbol, semaphore, direccion, vol_24h=0):
       else:
         tendencia_txt = "Bajista Fuerte"
 
+      # Cálculo del POC de Volumen
       poc = calcular_perfil_volumen_ponderado(df_1h)
 
       if "Short" in direccion:
@@ -415,7 +417,7 @@ st.markdown(
     f"""
     <div class="top-banner">
         <h2>📊 TERMINAL CRIPTO PRO — MODO PLAN DE TRADING ({direccion_trading.upper()})</h2>
-        <span style="font-size: 0.85rem; opacity: 0.9;">Exchange: MEXC Spot | Ref: BTC/USDT | MACD Multi-Temporal</span>
+        <span style="font-size: 0.85rem; opacity: 0.9;">Exchange: MEXC Spot | Ref: BTC/USDT | Indicador POC Activo</span>
     </div>
 """,
     unsafe_allow_html=True,
@@ -473,6 +475,7 @@ if btn_escanear:
                   f"🪙 *Activo:* {r['Cripto']}\n"
                   f"🎯 *Plan:* {direccion_trading}\n"
                   f"💰 *Precio Actual:* ${r['Precio ($)']}\n"
+                  f"🎯 *Punto de Control (POC):* ${r['POC (Vol)']}\n"
                   f"⚡ *Confluencia:* {r['Prob. Subir']}\n"
                   f"🛡️ *Stop Loss:* ${r['Stop Loss ($)']}\n"
                   f"🚀 *Take Profit:* ${r['Take Profit ($)']}\n"
@@ -546,7 +549,7 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
         <div class="kpi-card card-blue">
             <div class="kpi-title">🎯 PUNTO DE CONTROL (POC)</div>
             <div class="kpi-value">${crypto_data['POC (Vol)']}</div>
-            <div class="kpi-sub">Vol 24h: ${crypto_data['Volumen 24h ($)']:,.0f}</div>
+            <div class="kpi-sub">Zona de mayor liquidez (1h)</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -702,6 +705,7 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
         col=1,
     )
 
+    # Trazado visual del POC, Stop Loss y Take Profit en el gráfico
     poc_val = crypto_data["POC (Vol)"]
     sl_val = crypto_data["Stop Loss ($)"]
     tp_val = crypto_data["Take Profit ($)"]
@@ -807,7 +811,7 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
           margin=dict(l=20, r=20, t=45, b=20),
           showlegend=False,
       )
-      st.plotly_chart(fig_donut1, use_container_width=True)
+      st.plotly_chart(fig_donut1, use_content_width=True)
 
     with c_don2:
       top_5 = sorted(
@@ -832,7 +836,7 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
               )
           ]
       )
-      fig_donut2.update_layout(
+      fig_donut2.update_label(
           title_text="Top Activos por Fuerza de Confluencia",
           template="plotly_dark",
           paper_bgcolor="#151922",
