@@ -487,20 +487,20 @@ if btn_escanear:
           alertas_enviadas = 0
           for r in destacados:
             if "BTC" not in r["Cripto"] and r["Prob_Subir_Num"] >= umbral_alerta:
-            msg = (
-    f"🚨 *ALERTA FUTUROS (OKX)*\n\n"
-    f"🪙 *Activo:* {r['Cripto']}\n"
-    f"🎯 *Plan:* {direccion_trading}\n"
-    f"💰 *Precio:* ${r['Precio ($)']}\n"
-    f"🎯 *POC:* ${r['POC (Vol)']}\n"
-    f"⚡ *Confluencia:* {r['Prob. Subir']}\n"
-    f"🛡️ *Stop Loss:* ${r['Stop Loss ($)']}\n"
-    f"🚀 *Take Profit:* ${r['Take Profit ($)']}\n\n"
-    f"📈 *MACD Multi-Temporal:*\n"
-    f"• *15m:* {r['MACD 15m']}\n"
-    f"• *1h:* {r['MACD 1h']}\n"
-    f"• *4h:* {r['MACD 4h']}"
-)
+              msg = (
+                  f"🚨 *ALERTA FUTUROS (OKX)*\n\n"
+                  f"🪙 *Activo:* {r['Cripto']}\n"
+                  f"🎯 *Plan:* {direccion_trading}\n"
+                  f"💰 *Precio:* ${r['Precio ($)']}\n"
+                  f"🎯 *POC:* ${r['POC (Vol)']}\n"
+                  f"⚡ *Confluencia:* {r['Prob. Subir']}\n"
+                  f"🛡️ *Stop Loss:* ${r['Stop Loss ($)']}\n"
+                  f"🚀 *Take Profit:* ${r['Take Profit ($)']}\n\n"
+                  f"📈 *MACD Multi-Temporal:*\n"
+                  f"• *15m:* {r['MACD 15m']}\n"
+                  f"• *1h:* {r['MACD 1h']}\n"
+                  f"• *4h:* {r['MACD 4h']}"
+              )
               enviar_alerta_telegram(tg_token, tg_chat_id, msg)
               alertas_enviadas += 1
           if alertas_enviadas > 0:
@@ -833,67 +833,4 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
       st.plotly_chart(fig_donut1, use_container_width=True)
 
     with c_don2:
-      top_5 = sorted(
-          st.session_state["destacados"],
-          key=lambda x: x["Prob_Subir_Num"],
-          reverse=True,
-      )[:5]
-      fig_donut2 = go.Figure(
-          data=[
-              go.Pie(
-                  labels=[x["Cripto"] for x in top_5],
-                  values=[x["Prob_Subir_Num"] for x in top_5],
-                  hole=0.55,
-                  marker_colors=[
-                      "#29b6f6",
-                      "#ef5350",
-                      "#66bb6a",
-                      "#ffa726",
-                      "#ab47bc",
-                  ],
-                  textinfo="label+value",
-              )
-          ]
-      )
-      fig_donut2.update_layout(
-          title_text="Top Contratos por Fuerza de Confluencia",
-          template="plotly_dark",
-          paper_bgcolor="#151922",
-          height=320,
-          margin=dict(l=20, r=20, t=45, b=20),
-          showlegend=False,
-      )
-      st.plotly_chart(fig_donut2, use_container_width=True)
-
-  with tab2:
-    st.markdown("### 📋 Resumen de Contratos de Futuros OKX (BTC Primero)")
-    columnas_excluir = [
-        "raw_df",
-        "Prob_Subir_Num",
-        "vol_compra",
-        "vol_venta",
-        "Cambio_1h",
-    ]
-    df_visible = pd.DataFrame(
-        [
-            {k: v for k, v in r.items() if k not in columnas_excluir}
-            for r in st.session_state["destacados"]
-        ]
-    )
-
-    st.dataframe(
-        df_visible,
-        use_container_width=True,
-        column_config={
-            "Prob. Subir": st.column_config.ProgressColumn(
-                "Prob. Subir",
-                help="Puntuación técnica en 15m, 1h y 4h",
-                format="%s",
-                min_value=0,
-                max_value=100,
-            ),
-            "Volumen 24h ($)": st.column_config.NumberColumn(
-                "Volumen 24h ($)", format="$%d"
-            ),
-        },
-    )
+      top_5 =
