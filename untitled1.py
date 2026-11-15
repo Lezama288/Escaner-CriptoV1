@@ -487,16 +487,20 @@ if btn_escanear:
           alertas_enviadas = 0
           for r in destacados:
             if "BTC" not in r["Cripto"] and r["Prob_Subir_Num"] >= umbral_alerta:
-              msg = (
-                  f"🚨 *ALERTA FUTUROS (OKX)*\n\n"
-                  f"🪙 *Activo:* {r['Cripto']}\n"
-                  f"🎯 *Plan:* {direccion_trading}\n"
-                  f"💰 *Precio:* ${r['Precio ($)']}\n"
-                  f"🎯 *POC:* ${r['POC (Vol)']}\n"
-                  f"⚡ *Confluencia:* {r['Prob. Subir']}\n"
-                  f"🛡️ *Stop Loss:* ${r['Stop Loss ($)']}\n"
-                  f"🚀 *Take Profit:* ${r['Take Profit ($)']}"
-              )
+            msg = (
+    f"🚨 *ALERTA FUTUROS (OKX)*\n\n"
+    f"🪙 *Activo:* {r['Cripto']}\n"
+    f"🎯 *Plan:* {direccion_trading}\n"
+    f"💰 *Precio:* ${r['Precio ($)']}\n"
+    f"🎯 *POC:* ${r['POC (Vol)']}\n"
+    f"⚡ *Confluencia:* {r['Prob. Subir']}\n"
+    f"🛡️ *Stop Loss:* ${r['Stop Loss ($)']}\n"
+    f"🚀 *Take Profit:* ${r['Take Profit ($)']}\n\n"
+    f"📈 *MACD Multi-Temporal:*\n"
+    f"• *15m:* {r['MACD 15m']}\n"
+    f"• *1h:* {r['MACD 1h']}\n"
+    f"• *4h:* {r['MACD 4h']}"
+)
               enviar_alerta_telegram(tg_token, tg_chat_id, msg)
               alertas_enviadas += 1
           if alertas_enviadas > 0:
