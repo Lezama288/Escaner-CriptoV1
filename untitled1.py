@@ -207,11 +207,9 @@ def detectar_fvg_y_ob(df, direccion):
   try:
     close_actual = df["close"].iloc[-1]
     if "Short" in direccion:
-      # Zona alta de resistencia / vacíos recientes
       fvg_zona = df["high"].rolling(5).max().iloc[-2]
       return round(fvg_zona, 4)
     else:
-      # Zona baja de soporte / mitigación institucional
       fvg_zona = df["low"].rolling(5).min().iloc[-2]
       return round(fvg_zona, 4)
   except Exception:
@@ -325,12 +323,10 @@ async def analizar_simbolo(exchange, symbol, semaphore, direccion, vol_24h=0):
       else:
         tendencia_txt = "Bajista Fuerte"
 
-      # Indicadores Institucionales para Limit Orders
       poc = calcular_perfil_volumen_ponderado(df_1h)
       vwap = calcular_vwap(df_1h)
       fvg_ob = detectar_fvg_y_ob(df_1h, direccion)
 
-      # Confluencia inteligente para el Precio Limit usando POC, VWAP y FVG/OB
       if "Short" in direccion:
         limit_entry = round(max(poc, vwap, fvg_ob, upper * 1.002), 4)
         stop_loss = round(max(upper * 1.01, limit_entry * 1.02), 4)
@@ -346,7 +342,7 @@ async def analizar_simbolo(exchange, symbol, semaphore, direccion, vol_24h=0):
         riesgo = limit_entry - stop_loss
         if riesgo <= 0:
           stop_loss = round(limit_entry * 0.97, 4)
-          riesgo = limit_entry - stop_loss
+          riesgo = stop_loss - stop_loss
         take_profit = round(limit_entry + (riesgo * 2.0), 4)
 
       vol_compra = df_1h[df_1h["close"] >= df_1h["open"]]["volume"].sum()
@@ -947,4 +943,74 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
         column_config={
             "Prob. Subir": st.column_config.ProgressColumn(
                 "Prob. Subir",
-                help="Puntuación técnica en 15m, 1
+                help="Puntuación técnica en 15m, 1h y 4h",
+                format="%s",
+                min_value=0,
+                max_value=100,
+            ),
+            "Volumen 24h ($)": st.column_config.NumberColumn(
+                "Volumen 24h ($)", format="$%d"
+            ),
+        },
+    )
+
+  with tab3:
+    st.markdown(
+        "### 🎯 Planificador de Órdenes Limit (Confluencia SMC: POC + VWAP +"
+        " FVG)"
+    )
+    st.info(
+        "Filtra exclusivamente los activos con mayor puntaje institucional y"
+        " técnico (>= 70%) para programar entradas pendientes en retroceso"
+        f" ({direccion_trading})."
+    )
+
+    df_limit = pd.DataFrame(st.session_state["destacados"])
+    df_limit = df_limit[df_limit["Prob_Subir_Num"] >= 70]
+    df_limit = df_limit.sort_values(by="Prob_Subir_Num", ascending=False)
+
+    if not df_limit.empty:
+      columnas_limit = [
+          "Cripto",
+          "Precio ($)",
+          "Precio Limit ($)",
+          "VWAP",
+          "POC (Vol)",
+          "Prob. Subir",
+          "Stop Loss ($)",
+          "Take Profit ($)",
+      ]
+      df_limit_view = df_limit[columnas_limit].reset_index(drop=True)
+
+      st.dataframe(
+          df_limit_view,
+          use_container_width=True,
+          column_config={
+              "Prob. Subir": st.column_config.ProgressColumn(
+                  "Confluencia",
+                  format="%s",
+                  min_value=0,
+                  max_value=100,
+              ),
+              "Precio Limit ($)": st.column_config.NumberColumn(
+                  "🎯 Entrada Limit ($)", format="$%.4f"
+              ),
+              "VWAP": st.column_config.NumberColumn(
+                  "🌊 VWAP ($)", format="$%.4f"
+              ),
+              "POC (Vol)": st.column_config.NumberColumn(
+                  "🎯 POC ($)", format="$%.4f"
+              ),
+              "Stop Loss ($)": st.column_config.NumberColumn(
+                  "🛡️ Stop Loss ($)", format="$%.4f"
+              ),
+              "Take Profit ($)": st.column_config.NumberColumn(
+                  "🚀 Take Profit ($)", format="$%.4f"
+              ),
+          },
+      )
+    else:
+      st.warning(
+          "No hay activos con confluencia suficiente (>= 70%) para órdenes"
+          " limit bajo los filtros actuales."
+      )
