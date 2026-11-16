@@ -9,7 +9,7 @@ import streamlit as st
 
 # Configuración de la página web
 st.set_page_config(
-    page_title="Terminal Cripto Pro - Futuros OKX",
+    page_title="Terminal Cripto Pro - Futuros OKX (SMC & Limit)",
     page_icon="📊",
     layout="wide",
 )
@@ -170,7 +170,7 @@ with st.sidebar.expander("🔔 Alertas a Telegram (Opcional)"):
   umbral_alerta = st.slider("Enviar si Confluencia >=", 60, 95, 78)
 
 
-# --- FUNCIONES DE CÁLCULO Y ALERTAS ---
+# --- FUNCIONES DE CÁLCULO INSTITUCIONAL (VWAP, FVG/OB, POC, MACD) ---
 def enviar_alerta_telegram(token, chat_id, mensaje):
   if not token or not chat_id:
     return
@@ -190,6 +190,32 @@ def calcular_macd_hist(df):
   signal_line = macd_line.ewm(span=9, adjust=False).mean()
   hist = macd_line - signal_line
   return hist.iloc[-1]
+
+
+def calcular_vwap(df):
+  """Calcula el VWAP (Volume Weighted Average Price) institucional."""
+  try:
+    typical_price = (df["high"] + df["low"] + df["close"]) / 3
+    vwap = (typical_price * df["volume"]).cumsum() / df["volume"].cumsum()
+    return round(vwap.iloc[-1], 4)
+  except Exception:
+    return df["close"].iloc[-1]
+
+
+def detectar_fvg_y_ob(df, direccion):
+  """Detecta niveles de Fair Value Gap (FVG) / Order Block aproximados para entradas en retroceso."""
+  try:
+    close_actual = df["close"].iloc[-1]
+    if "Short" in direccion:
+      # Zona alta de resistencia / vacíos recientes
+      fvg_zona = df["high"].rolling(5).max().iloc[-2]
+      return round(fvg_zona, 4)
+    else:
+      # Zona baja de soporte / mitigación institucional
+      fvg_zona = df["low"].rolling(5).min().iloc[-2]
+      return round(fvg_zona, 4)
+  except Exception:
+    return close_actual
 
 
 def calcular_perfil_volumen_ponderado(df):
@@ -299,23 +325,29 @@ async def analizar_simbolo(exchange, symbol, semaphore, direccion, vol_24h=0):
       else:
         tendencia_txt = "Bajista Fuerte"
 
+      # Indicadores Institucionales para Limit Orders
       poc = calcular_perfil_volumen_ponderado(df_1h)
+      vwap = calcular_vwap(df_1h)
+      fvg_ob = detectar_fvg_y_ob(df_1h, direccion)
 
+      # Confluencia inteligente para el Precio Limit usando POC, VWAP y FVG/OB
       if "Short" in direccion:
-        stop_loss = round(max(upper * 1.01, poc * 1.02, precio_actual * 1.03), 4)
-        riesgo = stop_loss - precio_actual
+        limit_entry = round(max(poc, vwap, fvg_ob, upper * 1.002), 4)
+        stop_loss = round(max(upper * 1.01, limit_entry * 1.02), 4)
+        riesgo = stop_loss - limit_entry
         if riesgo <= 0:
-          stop_loss = round(precio_actual * 1.03, 4)
-          riesgo = stop_loss - precio_actual
-        take_profit = round(precio_actual - (riesgo * 2.0), 4)
+          stop_loss = round(limit_entry * 1.03, 4)
+          riesgo = stop_loss - limit_entry
+        take_profit = round(limit_entry - (riesgo * 2.0), 4)
         take_profit = max(0.0001, take_profit)
       else:
-        stop_loss = round(min(lower * 0.99, poc * 0.98, precio_actual * 0.97), 4)
-        riesgo = precio_actual - stop_loss
+        limit_entry = round(min(poc, vwap, fvg_ob, lower * 0.998), 4)
+        stop_loss = round(min(lower * 0.99, limit_entry * 0.98), 4)
+        riesgo = limit_entry - stop_loss
         if riesgo <= 0:
-          stop_loss = round(precio_actual * 0.97, 4)
-          riesgo = precio_actual - stop_loss
-        take_profit = round(precio_actual + (riesgo * 2.0), 4)
+          stop_loss = round(limit_entry * 0.97, 4)
+          riesgo = limit_entry - stop_loss
+        take_profit = round(limit_entry + (riesgo * 2.0), 4)
 
       vol_compra = df_1h[df_1h["close"] >= df_1h["open"]]["volume"].sum()
       vol_venta = df_1h[df_1h["close"] < df_1h["open"]]["volume"].sum()
@@ -323,10 +355,13 @@ async def analizar_simbolo(exchange, symbol, semaphore, direccion, vol_24h=0):
       return {
           "Cripto": symbol.split(":")[0],
           "Precio ($)": round(precio_actual, 4),
+          "Precio Limit ($)": limit_entry,
           "Volumen 24h ($)": round(vol_24h, 0),
           "Cambio_1h": round(cambio_1h, 2),
           "Tendencia (3T)": tendencia_txt,
           "POC (Vol)": poc,
+          "VWAP": vwap,
+          "FVG/OB": fvg_ob,
           "Prob_Subir_Num": prob_subir,
           "Prob. Subir": f"{prob_subir}%",
           "Stop Loss ($)": stop_loss,
@@ -344,7 +379,6 @@ async def analizar_simbolo(exchange, symbol, semaphore, direccion, vol_24h=0):
 
 
 async def _ejecutar_escaneo_async(simbolos_custom, direccion, vol_min):
-  # CONEXIÓN DIRECTA A FUTUROS (SWAP) EN OKX
   exchange_okx = ccxt.okx(
       {"enableRateLimit": True, "options": {"defaultType": "swap"}}
   )
@@ -445,7 +479,7 @@ st.markdown(
     f"""
     <div class="top-banner">
         <h2>📊 TERMINAL FUTUROS PRO (OKX) — MODO PLAN ({direccion_trading.upper()})</h2>
-        <span style="font-size: 0.85rem; opacity: 0.9;">Exchange: OKX Futures | Ref: BTC | Alta Liquidez</span>
+        <span style="font-size: 0.85rem; opacity: 0.9;">Exchange: OKX Futures | SMC (VWAP + FVG/OB + POC)</span>
     </div>
 """,
     unsafe_allow_html=True,
@@ -488,11 +522,13 @@ if btn_escanear:
           for r in destacados:
             if "BTC" not in r["Cripto"] and r["Prob_Subir_Num"] >= umbral_alerta:
               msg = (
-                  f"🚨 *ALERTA FUTUROS (OKX)*\n\n"
+                  f"🚨 *ALERTA INSTITUCIONAL (OKX)*\n\n"
                   f"🪙 *Activo:* {r['Cripto']}\n"
                   f"🎯 *Plan:* {direccion_trading}\n"
-                  f"💰 *Precio:* ${r['Precio ($)']}\n"
+                  f"💰 *Precio Actual:* ${r['Precio ($)']}\n"
+                  f"📌 *Entrada Limit (SMC):* ${r['Precio Limit ($)']}\n"
                   f"🎯 *POC:* ${r['POC (Vol)']}\n"
+                  f"🌊 *VWAP:* ${r['VWAP']}\n"
                   f"⚡ *Confluencia:* {r['Prob. Subir']}\n"
                   f"🛡️ *Stop Loss:* ${r['Stop Loss ($)']}\n"
                   f"🚀 *Take Profit:* ${r['Take Profit ($)']}\n\n"
@@ -555,9 +591,9 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
     st.markdown(
         f"""
         <div class="kpi-card {color_precio}">
-            <div class="kpi-title">💰 PRECIO FUTURO ({crypto_data['Cripto']})</div>
-            <div class="kpi-value">${crypto_data['Precio ($)']}</div>
-            <div class="kpi-sub">Variación 1h: {signo}{crypto_data['Cambio_1h']}%</div>
+            <div class="kpi-title">🎯 ENTRADA LIMIT (SMC)</div>
+            <div class="kpi-value">${crypto_data['Precio Limit ($)']}</div>
+            <div class="kpi-sub">Actual: ${crypto_data['Precio ($)']} ({signo}{crypto_data['Cambio_1h']}%)</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -567,9 +603,12 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
     st.markdown(
         f"""
         <div class="kpi-card card-blue">
-            <div class="kpi-title">🎯 PUNTO DE CONTROL (POC)</div>
-            <div class="kpi-value">${crypto_data['POC (Vol)']}</div>
-            <div class="kpi-sub">Vol 24h: ${crypto_data['Volumen 24h ($)']:,.0f}</div>
+            <div class="kpi-title">🌊 VWAP & POC</div>
+            <div class="kpi-value" style="font-size: 1.25rem; padding-top:4px;">
+                VWAP: ${crypto_data['VWAP']}<br>
+                POC: ${crypto_data['POC (Vol)']}
+            </div>
+            <div class="kpi-sub">Zonas Institucionales Activas</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -650,9 +689,10 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
   st.markdown("<br>", unsafe_allow_html=True)
 
   # 3. PESTAÑAS DE NAVEGACIÓN
-  tab1, tab2 = st.tabs([
+  tab1, tab2, tab3 = st.tabs([
       "📈 VISTA GENERAL Y GRÁFICOS",
       "📋 TABLA COMPLETA DE FUTUROS",
+      "🎯 PLANIFICADOR DE ÓRDENES LIMIT (SMC)",
   ])
 
   with tab1:
@@ -726,6 +766,8 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
     )
 
     poc_val = crypto_data["POC (Vol)"]
+    vwap_val = crypto_data["VWAP"]
+    limit_val = crypto_data["Precio Limit ($)"]
     sl_val = crypto_data["Stop Loss ($)"]
     tp_val = crypto_data["Take Profit ($)"]
 
@@ -735,6 +777,24 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
         line_color="#ffa726",
         annotation_text=f"POC: ${poc_val}",
         annotation_position="bottom right",
+        row=1,
+        col=1,
+    )
+    fig.add_hline(
+        y=vwap_val,
+        line_dash="dot",
+        line_color="#ab47bc",
+        annotation_text=f"VWAP: ${vwap_val}",
+        annotation_position="bottom left",
+        row=1,
+        col=1,
+    )
+    fig.add_hline(
+        y=limit_val,
+        line_dash="dash",
+        line_color="#29b6f6",
+        annotation_text=f"ENTRADA LIMIT (SMC): ${limit_val}",
+        annotation_position="top right",
         row=1,
         col=1,
     )
@@ -822,3 +882,69 @@ if "destacados" in st.session_state and st.session_state["destacados"]:
               )
           ]
       )
+      fig_donut1.update_layout(
+          title_text=f"Presión Compra vs Venta ({crypto_data['Cripto']})",
+          template="plotly_dark",
+          paper_bgcolor="#151922",
+          height=320,
+          margin=dict(l=20, r=20, t=45, b=20),
+          showlegend=False,
+      )
+      st.plotly_chart(fig_donut1, use_container_width=True)
+
+    with c_don2:
+      top_5 = sorted(
+          st.session_state["destacados"],
+          key=lambda x: x["Prob_Subir_Num"],
+          reverse=True,
+      )[:5]
+      fig_donut2 = go.Figure(
+          data=[
+              go.Pie(
+                  labels=[x["Cripto"] for x in top_5],
+                  values=[x["Prob_Subir_Num"] for x in top_5],
+                  hole=0.55,
+                  marker_colors=[
+                      "#29b6f6",
+                      "#ef5350",
+                      "#66bb6a",
+                      "#ffa726",
+                      "#ab47bc",
+                  ],
+                  textinfo="label+value",
+              )
+          ]
+      )
+      fig_donut2.update_layout(
+          title_text="Top Contratos por Fuerza de Confluencia",
+          template="plotly_dark",
+          paper_bgcolor="#151922",
+          height=320,
+          margin=dict(l=20, r=20, t=45, b=20),
+          showlegend=False,
+      )
+      st.plotly_chart(fig_donut2, use_container_width=True)
+
+  with tab2:
+    st.markdown("### 📋 Resumen de Contratos de Futuros OKX (BTC Primero)")
+    columnas_excluir = [
+        "raw_df",
+        "Prob_Subir_Num",
+        "vol_compra",
+        "vol_venta",
+        "Cambio_1h",
+    ]
+    df_visible = pd.DataFrame(
+        [
+            {k: v for k, v in r.items() if k not in columnas_excluir}
+            for r in st.session_state["destacados"]
+        ]
+    )
+
+    st.dataframe(
+        df_visible,
+        use_container_width=True,
+        column_config={
+            "Prob. Subir": st.column_config.ProgressColumn(
+                "Prob. Subir",
+                help="Puntuación técnica en 15m, 1
